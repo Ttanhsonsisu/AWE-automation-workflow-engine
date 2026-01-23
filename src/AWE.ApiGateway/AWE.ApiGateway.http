@@ -1,0 +1,6 @@
+@AWE.ApiGateway_HostAddress = http://localhost:5192
+
+GET {{AWE.ApiGateway_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,106 @@
+# =============================================================================
+# .NET EDITORCONFIG
+# Project: AWE (Automation Workflow Engine)
+# =============================================================================
+root = true
+
+# -----------------------------------------------------------------------------
+# 1. CORE FORMATTING
+# -----------------------------------------------------------------------------
+[*]
+indent_style = space
+end_of_line = crlf
+charset = utf-8-bom
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# XML project files
+[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj}]
+indent_size = 2
+
+# XML config files
+[*.{props,targets,ruleset,config,nuspec,resx,vsixmanifest,vsct}]
+indent_size = 2
+
+# C# Code files
+[*.{cs,csx}]
+indent_size = 4
+
+# -----------------------------------------------------------------------------
+# 2. NAMING CONVENTIONS (CRITICAL FOR CLEAN ARCHITECTURE)
+# -----------------------------------------------------------------------------
+
+# [Rule 1]: Interfaces must start with 'I' (e.g., IWorkflowService)
+dotnet_naming_rule.interface_should_be_begins_with_i.severity = warning
+dotnet_naming_symbols.interface.applicable_kinds = interface
+dotnet_naming_symbols.interface.applicable_accessibilities = public, internal
+dotnet_naming_style.interface.capitalization = pascal_case
+dotnet_naming_style.interface.required_prefix = I
+
+# [Rule 2]: Async methods must end with 'Async' (e.g., ExecuteNodeAsync)
+dotnet_naming_rule.async_methods_must_end_with_async.severity = warning
+dotnet_naming_symbols.async_methods.applicable_kinds = method
+dotnet_naming_symbols.async_methods.applicable_accessibilities = *
+dotnet_naming_style.async_methods.capitalization = pascal_case
+dotnet_naming_style.async_methods.required_suffix = Async
+
+# [Rule 3]: Private fields must start with '_' (e.g., _logger, _repository)
+# Standard for Dependency Injection in .NET
+dotnet_naming_rule.private_members_with_underscore.severity = warning
+dotnet_naming_symbols.private_members.applicable_kinds = field
+dotnet_naming_symbols.private_members.applicable_accessibilities = private
+dotnet_naming_style.private_members.capitalization = camel_case
+dotnet_naming_style.private_members.required_prefix = _
+
+# [Rule 4]: Constants must be PascalCase (e.g., MaxRetries)
+dotnet_naming_rule.constant_fields_should_be_pascal_case.severity = suggestion
+dotnet_naming_symbols.constant_fields.applicable_kinds = field
+dotnet_naming_symbols.constant_fields.required_modifiers = const
+dotnet_naming_style.constant_fields.capitalization = pascal_case
+
+# -----------------------------------------------------------------------------
+# 3. MODERN C# LANGUAGE FEATURES
+# -----------------------------------------------------------------------------
+[*.cs]
+
+# Enforce File-Scoped Namespaces (Reduces indentation level)
+# Example: namespace AWE.Api;
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Prefer 'var' when the type is apparent (e.g., var list = new List<int>())
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_for_oi_creation = true:suggestion
+
+# Pattern Matching preferences (Use 'is not null' instead of '!= null')
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+
+# -----------------------------------------------------------------------------
+# 4. CODE STYLE & BEST PRACTICES
+# -----------------------------------------------------------------------------
+
+# Organize Usings: Place 'System.*' directives first
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Enforce braces for control flow statements (Avoids logic errors)
+# Bad: if (true) return;
+# Good: if (true) { return; }
+csharp_prefer_braces = true:warning
+
+# Avoid 'this.' qualification unless necessary
+dotnet_style_qualification_for_field = false:silent
+dotnet_style_qualification_for_property = false:silent
+dotnet_style_qualification_for_method = false:silent
+dotnet_style_qualification_for_event = false:silent
+
+# New line preferences (Improves readability)
+csharp_new_line_before_catch = true
+csharp_new_line_before_else = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+
+# Spacing preferences
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_around_binary_operators = before_and_after

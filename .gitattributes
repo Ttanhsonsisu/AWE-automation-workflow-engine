@@ -1,0 +1,80 @@
+# =======================================================
+# ENTERPRISE .NET GITATTRIBUTES
+# Project: AWE (Automation Workflow Engine)
+# =======================================================
+
+# =======================================================
+# 1. AUTO-DETECT & CORE SETTINGS
+# =======================================================
+* text=auto
+
+# =======================================================
+# 2. LINE ENDINGS (CRITICAL FOR DOCKER/LINUX)
+# =======================================================
+*.sh      text eol=lf
+*.bash    text eol=lf
+Dockerfile text eol=lf
+
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
+
+*.sln     text eol=crlf
+*.csproj  text default
+*.props   text default
+*.editorconfig text
+
+# =======================================================
+# 3. WEB & FRONTEND
+# =======================================================
+*.js      text
+*.jsx     text
+*.ts      text
+*.tsx     text
+*.json    text
+*.css     text
+*.scss    text
+*.html    text
+*.xml     text
+*.yml     text
+*.yaml    text
+
+# =======================================================
+# 4. BINARY FILES (IMAGES & DLLS)
+# =======================================================
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.svg     binary
+*.ttf     binary
+*.eot     binary
+*.woff    binary
+*.woff2   binary
+*.dll     binary
+*.exe     binary
+*.pdb     binary
+*.so      binary
+*.db      binary
+*.sqlite  binary
+
+# =======================================================
+# 5. SECURITY & CERTIFICATES (YOUR ADDITION)
+# =======================================================
+# Treat certificate bundles as binary to prevent corruption
+*.pfx     binary
+*.p12     binary
+*.der     binary
+*.cer     binary
+*.asc     binary
+*.pem     binary
+
+# =======================================================
+# 6. GITHUB LINGUIST STATISTICS
+# =======================================================
+*.min.js  linguist-generated
+*.min.css linguist-generated
+package-lock.json linguist-generated
+yarn.lock linguist-generated
+pnpm-lock.yaml linguist-generated
