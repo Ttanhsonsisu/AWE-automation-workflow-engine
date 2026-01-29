@@ -1,19 +1,34 @@
 <Solution>
   <Folder Name="/docs/" />
   <Folder Name="/frontend/" />
+  <Folder Name="/Solution Items/">
+    <File Path=".dockerignore" />
+    <File Path=".editorconfig" />
+    <File Path=".env" />
+    <File Path=".env.example" />
+    <File Path=".env.production" />
+    <File Path=".env.staging" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="docker-compose.yml" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/AWE.ApiGateway/AWE.ApiGateway.csproj" />
     <Project Path="src/AWE.AppHost/AWE.AppHost.csproj" />
-    <Project Path="src/AWE.Application/AWE.Application.csproj" />
     <Project Path="src/AWE.Contracts/AWE.Contracts.csproj" />
-    <Project Path="src/AWE.Domain/AWE.Domain.csproj" />
-    <Project Path="src/AWE.Infrastructure/AWE.Infrastructure.csproj" />
     <Project Path="src/AWE.Plugin.Abstractions/AWE.Plugin.Abstractions.csproj" />
     <Project Path="src/AWE.Plugins/AWE.Plugins.csproj" />
     <Project Path="src/AWE.ServiceDefaults/AWE.ServiceDefaults.csproj" />
     <Project Path="src/AWE.Shared/AWE.Shared.csproj" />
     <Project Path="src/AWE.Worker/AWE.Worker.csproj" />
-    <Project Path="src/AWE.WorkflowEngine/AWE.WorkflowEngine.csproj" />
   </Folder>
   <Folder Name="/tests/" />
+  <Folder Name="/src/AWE.Core/">
+    <Project Path="src/AWE.Core/AWE.Application/AWE.Application.csproj" />
+    <Project Path="src/AWE.Core/AWE.Domain/AWE.Domain.csproj" />
+    <Project Path="src/AWE.Core/AWE.Infrastructure/AWE.Infrastructure.csproj" />
+    <Project Path="src/AWE.Core/AWE.WorkflowEngine/AWE.WorkflowEngine.csproj" />
+  </Folder>
 </Solution>

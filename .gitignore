@@ -1,4 +1,4 @@
-# =======================================================
+﻿# =======================================================
 # .NET GITIGNORE
 # Project: AWE (Automation Workflow Engine)
 # =======================================================
@@ -30,6 +30,8 @@
 # -------------------------------------------------------------------------
 # User Secrets (Critical security)
 secrets.json
+**/secrets.json
+**/*.secrets.json
 
 # Local Configuration (Overrides)
 appsettings.Local.json
@@ -124,6 +126,10 @@ docker-compose.override.yml
 # Docker build logs/artifacts if any
 .docker/
 
+# Docker runtime junk
+**/.docker/
+**/*.pid
+
 # -------------------------------------------------------------------------
 # 9. MISCELLANEOUS / LOGS
 # -------------------------------------------------------------------------
@@ -131,7 +137,19 @@ docker-compose.override.yml
 *.tmp
 *.bak
 *.swp
+*.old
+*.orig
 
 # Application specific uploads (if running locally)
 wwwroot/uploads/
 App_Data/
+
+# ENV & SECRETS
+.env
+.env.*
+!.env.example
+
+# APPSETTINGS
+**/appsettings.Development.json
+**/appsettings.Staging.json
+**/appsettings.Production.json
