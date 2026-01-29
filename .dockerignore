@@ -1,0 +1,56 @@
+﻿ #SOURCE CONTROL & IDE
+.git
+.gitignore
+.gitattributes
+
+.vs
+.vscode
+.idea
+*.sln.iml
+
+# BUILD OUTPUTS
+**/bin
+**/obj
+**/out
+**/TestResults
+
+# TEST / COVERAGE
+**/*.trx
+**/*.coverage
+**/*.coveragexml
+
+# USER / OS FILES
+*.user
+*.suo
+*.cache
+*.log
+*.pid
+*.swp
+
+.DS_Store
+Thumbs.db
+desktop.ini
+ 
+# ENV & SECRETS (CRITICAL)
+.env
+.env.*
+!.env.example
+
+appsettings.Development.json
+appsettings.Staging.json
+appsettings.Production.json
+ 
+# DOCKER / CI (OPTIONAL)
+docker-compose.yml
+docker-compose.*.yml
+ 
+# DOCS & MISC
+docs
+documentation
+README.md
+*.md
+
+# OTHERS
+node_modules
+npm-debug.log
+yarn-error.log

@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MassTransit.RabbitMQ" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AWE.Contracts\AWE.Contracts.csproj" />
+    <ProjectReference Include="..\..\AWE.Shared\AWE.Shared.csproj" />
+    <ProjectReference Include="..\AWE.Domain\AWE.Domain.csproj" />
+    <ProjectReference Include="..\..\AWE.Plugin.Abstractions\AWE.Plugin.Abstractions.csproj" />
+    <ProjectReference Include="..\AWE.Infrastructure\AWE.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,165 @@
+﻿version: "3.9"
+
+name: awe-platform
+
+networks:
+  awe-network:
+    driver: bridge
+
+volumes:
+  rabbitmq-data:
+  postgres-data:
+
+services:
+
+  # DATABASE POSTGRESQL
+  postgres:
+      image: postgres:${POSTGRES_IMAGE_TAG}
+      container_name: awe-postgres
+      restart: always
+      ports:
+        - "${POSTGRES_PORT}:5432"
+      environment:
+        POSTGRES_USER: ${POSTGRES_USER}
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        POSTGRES_DB: awe_db
+      volumes:
+        - postgres-data:/var/lib/postgresql/data
+      networks:
+        - awe-network
+
+  # RABBITMQ   
+  rabbitmq:
+    image: rabbitmq:${RABBITMQ_IMAGE_TAG}
+    container_name: awe-rabbitmq
+    hostname: rabbitmq
+    restart: unless-stopped
+
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: /
+ 
+    ports:
+      - "${RABBITMQ_AMQP_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
+
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+
+    networks:
+      - awe-network
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  # SETUP WORKER 
+  rabbitmq-setup:
+    image: curlimages/curl
+    container_name: awe-rabbitmq-setup
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - awe-network
+    environment:
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_VHOST: ${RABBITMQ_DEFAULT_VHOST}
+      RABBITMQ_HOST: rabbitmq
+    command: |
+      /bin/sh -c "
+      echo 'Waiting for RabbitMQ Management API...'
+      
+      # Retry loop
+      while ! curl -s -f -u $${RABBITMQ_USER}:$${RABBITMQ_PASS} http://$${RABBITMQ_HOST}:15672/api/aliveness-test/%2F; do
+        echo 'RabbitMQ not ready... retrying in 3s'
+        sleep 3
+      done
+      
+      echo 'RabbitMQ is UP! Configuring...'
+
+      # create VHost 
+      echo 'Creating VHost: $${RABBITMQ_VHOST}'
+      curl -i -u $${RABBITMQ_USER}:$${RABBITMQ_PASS} -H 'content-type:application/json' -X PUT http://$${RABBITMQ_HOST}:15672/api/vhosts/$${RABBITMQ_VHOST}
+
+      # Set Permissions 
+      echo 'Setting Permissions for user: $${RABBITMQ_USER}'
+      curl -i -u $${RABBITMQ_USER}:$${RABBITMQ_PASS} -H 'content-type:application/json' -X PUT http://$${RABBITMQ_HOST}:15672/api/permissions/$${RABBITMQ_VHOST}/$${RABBITMQ_USER} -d '{\"configure\":\".*\",\"write\":\".*\",\"read\":\".*\"}'
+      
+      echo 'SETUP COMPLETED SUCCESSFULLY!'
+      "
+
+
+  # API GATEWAY
+  # api-gateway:
+  #   image: awe/api-gateway:latest
+  #   container_name: awe-api-gateway
+  #   restart: unless-stopped
+
+  #   environment:
+  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+
+  #     RabbitMQ (MassTransit)
+  #     RABBITMQ__HOST: ${RABBITMQ_HOST}
+  #     RABBITMQ__PORT: ${RABBITMQ_PORT}
+  #     RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
+  #     RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
+  #     RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+
+  #     MassTransit tuning
+  #     MT__RETRY_COUNT: ${MT_RETRY_COUNT}
+  #     MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
+  #     MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
+  #     MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+
+  #     App
+  #     WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
+  #     WORKFLOW_ENGINE_INSTANCE_ID: api-gateway
+
+  #   ports:
+  #     - "${API_GATEWAY_HTTP_PORT}:8080"
+
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
+
+  #   networks:
+  #     - awe-network
+
+
+  # WORKER
+  # worker:
+  #   image: awe/worker:latest
+  #   container_name: awe-worker
+  #   restart: unless-stopped
+
+  #   environment:
+  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+
+  #     RabbitMQ
+  #     RABBITMQ__HOST: ${RABBITMQ_HOST}
+  #     RABBITMQ__PORT: ${RABBITMQ_PORT}
+  #     RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
+  #     RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
+  #     RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+
+  #     MassTransit
+  #     MT__RETRY_COUNT: ${MT_RETRY_COUNT}
+  #     MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
+  #     MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
+  #     MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+
+  #     App
+  #     WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
+  #     WORKFLOW_ENGINE_INSTANCE_ID: worker-01
+
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
+
+  #   networks:
+  #     - awe-network

@@ -1,4 +1,6 @@
-var builder = DistributedApplication.CreateBuilder(args);
+﻿var builder = DistributedApplication.CreateBuilder(args);
+
+//var messaging = builder.AddConnectionString("messaging");
 
 builder.AddProject<Projects.AWE_ApiGateway>("awe-apigateway");
 
