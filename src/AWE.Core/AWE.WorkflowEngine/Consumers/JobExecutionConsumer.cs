@@ -1,7 +1,7 @@
 ﻿using AWE.Shared.Consts;
 using MassTransit;
 using Microsoft.Extensions.Logging;
-using AWE.Contracts.Messages; // Namespace chứa các record bạn vừa định nghĩa
+using AWE.Contracts.Messages;
 
 namespace AWE.WorkflowEngine.Consumers;
 

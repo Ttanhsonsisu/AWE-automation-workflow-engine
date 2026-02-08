@@ -54,6 +54,8 @@ public class Result
         if (IsFailure) action(Error!);
         return this;
     }
+
+    public static implicit operator Result(Error error) => Failure(error);
 }
 
 public class Result<T> : Result

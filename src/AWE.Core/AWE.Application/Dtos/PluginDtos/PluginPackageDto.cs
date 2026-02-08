@@ -4,4 +4,5 @@ public record PluginPackageDto(
     Guid Id,
     string UniqueName,
     string DisplayName,
-    string? Description);
+    string? Description
+);

@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\AWE.Shared\AWE.Shared.csproj" />
     <ProjectReference Include="..\AWE.Application\AWE.Application.csproj" />
     <ProjectReference Include="..\AWE.Domain\AWE.Domain.csproj" />
+    <ProjectReference Include="..\AWE.Sdk\AWE.Sdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>

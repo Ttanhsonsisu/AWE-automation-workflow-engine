@@ -10,4 +10,5 @@ public interface IPluginPackageRepository
 
     Task AddAsync(PluginPackage entity, CancellationToken ct = default);
     Task<IReadOnlyList<PluginPackage>> ListAsync(CancellationToken ct = default);
+    Task<bool> ExistsAsync(Guid packageId, CancellationToken ct);
 }
