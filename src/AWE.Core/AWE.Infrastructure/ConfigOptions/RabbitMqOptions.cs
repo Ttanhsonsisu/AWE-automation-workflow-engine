@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 
-namespace AWE.Infrastructure.Messaging;
+namespace AWE.Infrastructure.ConfigOptions;
 
 public class RabbitMqOptions
 {

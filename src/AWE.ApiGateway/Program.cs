@@ -27,6 +27,9 @@ builder.Services.AddAwePersistence(builder.Configuration);
 // Register messaging infrastructure 
 builder.Services.AddAweMessaging(builder.Configuration);
 
+// Register object storage
+//builder.Services.AddAweObjectStorage(builder.Configuration);
+
 
 // ------------------------------------------------------------
 // Web API configuration

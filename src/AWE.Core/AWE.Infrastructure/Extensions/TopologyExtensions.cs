@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using MassTransit;
+﻿using MassTransit;
 using RabbitMQ.Client;
 
-namespace AWE.Infrastructure.Messaging;
+namespace AWE.Infrastructure.Extensions;
 
 public static class TopologyExtensions
 {

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using AWE.Infrastructure.Messaging;
+using AWE.Infrastructure.Extensions;
 using MassTransit;
 
 namespace AWE.WorkflowEngine.Consumers.Definitions;
