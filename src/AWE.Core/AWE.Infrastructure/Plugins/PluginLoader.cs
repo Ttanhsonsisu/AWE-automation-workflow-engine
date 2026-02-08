@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Runtime.Loader;
-using System.Text;
-using AWE.Domain.Plugins;
+﻿using AWE.Sdk; 
 using Microsoft.Extensions.Logging;
 
 namespace AWE.Infrastructure.Plugins;
@@ -10,62 +6,96 @@ namespace AWE.Infrastructure.Plugins;
 public class PluginLoader
 {
     private readonly ILogger<PluginLoader> _logger;
-    // Cache instance của plugin để không phải load lại liên tục (Optional)
-    private static readonly Dictionary<string, IWorkflowPlugin> _pluginCache = new();
 
     public PluginLoader(ILogger<PluginLoader> logger)
     {
         _logger = logger;
     }
 
-    public IWorkflowPlugin LoadPlugin(string pluginName, string dllPath)
+    /// <summary>
+    /// Hàm chính: Load DLL -> Execute -> Unload -> Return Result
+    /// </summary>
+    public async Task<PluginResult> ExecutePluginAsync(
+        string dllPath,
+        string jsonPayload,
+        CancellationToken cancellationToken)
     {
-        // 1. Check Cache
-        if (_pluginCache.TryGetValue(pluginName, out var cachedPlugin))
-        {
-            return cachedPlugin;
-        }
-
         if (!File.Exists(dllPath))
-        {
-            throw new FileNotFoundException($"Không tìm thấy file plugin tại: {dllPath}");
-        }
+            return PluginResult.Failure($"Plugin DLL not found at: {dllPath}");
+
+        WeakReference alcWeakRef;
+        PluginResult result;
 
         try
         {
-            _logger.LogInformation("🔌 Loading Plugin DLL: {Path}", dllPath);
-
-            // 2. Load DLL vào Context riêng (để tránh xung đột version)
-            var loadContext = new AssemblyLoadContext(pluginName, isCollectible: true);
-            var assembly = loadContext.LoadFromAssemblyPath(dllPath);
-
-            // 3. Scan tìm class implement IWorkflowPlugin
-            var pluginType = assembly.GetTypes()
-                .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
-
-            if (pluginType == null)
-            {
-                throw new InvalidOperationException($"DLL {dllPath} không chứa class nào implement IWorkflowPlugin.");
-            }
-
-            // 4. Create Instance
-            var pluginInstance = (IWorkflowPlugin)Activator.CreateInstance(pluginType)!;
-
-            // 5. Verify Name (Optional safety check)
-            if (pluginInstance.Name != pluginName)
-            {
-                _logger.LogWarning("⚠️ Plugin Name không khớp! Yêu cầu: {Req}, Thực tế: {Act}", pluginName, pluginInstance.Name);
-            }
-
-            // 6. Cache lại
-            _pluginCache[pluginName] = pluginInstance;
-
-            return pluginInstance;
+            // --- FIX: Sử dụng Tuple Deconstruction để lấy kết quả ---
+            (result, alcWeakRef) = await ExecuteInContext(dllPath, jsonPayload, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "🔥 Lỗi khi load plugin {Name}", pluginName);
-            throw;
+            _logger.LogError(ex, "🔥 Host Error executing plugin at {Path}", dllPath);
+            return PluginResult.Failure($"Host Error: {ex.Message}");
+        }
+
+        // --- ALC CLEANUP LOGIC ---
+        // Cố gắng Force GC để giải phóng AssemblyLoadContext
+        for (int i = 0; i < 10 && alcWeakRef.IsAlive; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        if (alcWeakRef.IsAlive)
+        {
+            _logger.LogWarning("⚠️ Plugin ALC failed to unload via GC (Possible memory leak in Plugin code).");
+        }
+        else
+        {
+            _logger.LogDebug("✅ Plugin ALC unloaded successfully.");
+        }
+
+        return result;
+    }
+
+    // --- FIX: Đổi kiểu trả về thành Task<(Result, WeakReference)> ---
+    private async Task<(PluginResult Result, WeakReference AlcWeakRef)> ExecuteInContext(
+        string dllPath,
+        string jsonPayload,
+        CancellationToken ct)
+    {
+        // 1. Tạo Context
+        var loadContext = new PluginLoadContext(dllPath);
+        var alcWeakRef = new WeakReference(loadContext);
+
+        try
+        {
+            // 2. Load Assembly
+            var assembly = loadContext.LoadFromAssemblyPath(dllPath);
+
+            // 3. Tìm Implementation của IWorkflowPlugin
+            var pluginType = assembly.GetTypes()
+                .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t) && !t.IsAbstract);
+
+            if (pluginType == null)
+                return (PluginResult.Failure("DLL missing IWorkflowPlugin implementation."), alcWeakRef);
+
+            if (Activator.CreateInstance(pluginType) is not IWorkflowPlugin pluginInstance)
+                return (PluginResult.Failure("Failed to create plugin instance."), alcWeakRef);
+
+            // 4. Prepare Context
+            var pluginContext = new PluginContext(jsonPayload, ct);
+
+            // 5. Execute
+            _logger.LogInformation("🚀 executing: {Name}", pluginInstance.Name);
+            var result = await pluginInstance.ExecuteAsync(pluginContext);
+
+            // Trả về kết quả + tham chiếu yếu
+            return (result, alcWeakRef);
+        }
+        finally
+        {
+            // 6. Đánh dấu Unload
+            loadContext.Unload();
         }
     }
 }

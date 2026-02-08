@@ -23,4 +23,7 @@ public class PluginPackageRepository : IPluginPackageRepository
 
     public async Task<IReadOnlyList<PluginPackage>> ListAsync(CancellationToken ct = default)
         => await _db.PluginPackages.AsNoTracking().OrderBy(x => x.UniqueName).ToListAsync(ct);
+
+    public async Task<bool> ExistsAsync(Guid packageId, CancellationToken ct)
+        => await _db.PluginPackages.AnyAsync(x => x.Id.Equals(packageId), ct);
 }

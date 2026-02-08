@@ -1,4 +1,5 @@
 ﻿using AWE.Application.Abstractions.Persistence;
+using AWE.Application.Abstractions.Validation;
 using AWE.Application.Services;
 using AWE.Infrastructure.ConfigOptions;
 using AWE.Infrastructure.Extensions;
@@ -6,6 +7,7 @@ using AWE.Infrastructure.Persistence;
 using AWE.Infrastructure.Persistence.Repositories;
 using AWE.Infrastructure.Plugins;
 using AWE.Infrastructure.Services;
+using AWE.Infrastructure.Validation;
 using AWE.Shared.Consts;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -57,6 +59,7 @@ public static class DependencyInjection
         services.AddAweObjectStorage(configuration);
         services.AddSingleton<PluginLoader>();
         services.AddScoped<IStorageService, MinioStorageService>();
+        services.AddScoped<IPluginValidator, PluginValidator>();
         services.AddScoped<IPluginService, PluginService>();
         // Background service
         // TODO:

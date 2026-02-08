@@ -1,22 +1,15 @@
 ﻿using System.Text.Json;
-using AWE.ApiGateway.Dtos.Requests;
+using AWE.ApiGateway.Dtos.Requests; 
 using AWE.Application.Services;
+using AWE.Shared.Primitives; 
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
-[ApiController]
 [Route("api/plugins")]
-public class PluginsController : ControllerBase
+public class PluginsController(IPluginService pluginService) : ApiController
 {
-    private readonly IPluginService _pluginService;
-
-    public PluginsController(IPluginService pluginService)
-    {
-        _pluginService = pluginService;
-    }
-
-    // ---------------- Packages ----------------
+    private readonly IPluginService _pluginService = pluginService;
 
     [HttpPost("packages")]
     public async Task<IActionResult> CreatePackage(
@@ -29,18 +22,17 @@ public class PluginsController : ControllerBase
             req.Description,
             ct);
 
-        return Ok(result);
+        return HandleResult(result); 
     }
 
     [HttpGet("packages")]
     public async Task<IActionResult> ListPackages(CancellationToken ct)
     {
         var result = await _pluginService.ListPackagesAsync(ct);
-        return Ok(result);
+        return HandleResult(result);
     }
 
-    // ---------------- Versions ----------------
-
+    // Versions 
     [HttpPost("packages/{packageId:guid}/versions")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UploadVersion(
@@ -49,28 +41,36 @@ public class PluginsController : ControllerBase
         CancellationToken ct)
     {
         if (req.File is null || req.File.Length == 0)
-            return BadRequest("File is required.");
+        {
+            return HandleFailure(Error.Validation("Request.FileRequired", "File is required."));
+        }
 
         JsonDocument? schema = null;
         if (!string.IsNullOrWhiteSpace(req.ConfigSchemaJson))
         {
-            try { schema = JsonDocument.Parse(req.ConfigSchemaJson); }
-            catch { return BadRequest("ConfigSchemaJson is not valid JSON."); }
+            try
+            {
+                schema = JsonDocument.Parse(req.ConfigSchemaJson);
+            }
+            catch
+            {
+                return HandleFailure(Error.Validation("Request.InvalidJson", "ConfigSchemaJson is not valid JSON."));
+            }
         }
 
-        await using var stream = req.File.OpenReadStream();
+        using var stream = req.File.OpenReadStream();
 
         var result = await _pluginService.UploadVersionAsync(
             packageId: packageId,
             version: req.Version,
             dllStream: stream,
             fileName: req.File.FileName,
-            bucket: req.Bucket,
+            bucket: req.Bucket ?? "awe-plugins",
             configSchema: schema,
             releaseNotes: req.ReleaseNotes,
             ct: ct);
 
-        return Ok(result);
+        return HandleResult(result);
     }
 
     [HttpGet("packages/{packageId:guid}/versions")]
@@ -79,7 +79,7 @@ public class PluginsController : ControllerBase
         CancellationToken ct)
     {
         var result = await _pluginService.ListVersionsAsync(packageId, ct);
-        return Ok(result);
+        return HandleResult(result);
     }
 
     [HttpGet("versions/{versionId:guid}/download")]
@@ -87,10 +87,14 @@ public class PluginsController : ControllerBase
         [FromRoute] Guid versionId,
         CancellationToken ct)
     {
-        var stream = await _pluginService.DownloadVersionAsync(versionId, ct);
+        var result = await _pluginService.DownloadVersionAsync(versionId, ct);
 
-        // Trả file binary (dll)
-        return File(stream, "application/octet-stream", fileDownloadName: $"plugin-{versionId}.dll");
+        if (result.IsFailure)
+        {
+            return HandleFailure(result.Error!);
+        }
+
+        return File(result.Value, "application/octet-stream", fileDownloadName: $"plugin-{versionId}.dll");
     }
 
     [HttpPost("versions/{versionId:guid}/activate")]
@@ -98,8 +102,8 @@ public class PluginsController : ControllerBase
         [FromRoute] Guid versionId,
         CancellationToken ct)
     {
-        await _pluginService.ActivateVersionAsync(versionId, ct);
-        return Ok();
+        var result = await _pluginService.ActivateVersionAsync(versionId, ct);
+        return HandleResult(result);
     }
 
     [HttpPost("versions/{versionId:guid}/deactivate")]
@@ -107,8 +111,8 @@ public class PluginsController : ControllerBase
         [FromRoute] Guid versionId,
         CancellationToken ct)
     {
-        await _pluginService.DeactivateVersionAsync(versionId, ct);
-        return Ok();
+        var result = await _pluginService.DeactivateVersionAsync(versionId, ct);
+        return HandleResult(result);
     }
 
     [HttpDelete("versions/{versionId:guid}")]
@@ -117,7 +121,7 @@ public class PluginsController : ControllerBase
         [FromQuery] bool deleteObject = true,
         CancellationToken ct = default)
     {
-        await _pluginService.DeleteVersionAsync(versionId, deleteObject, ct);
-        return Ok();
+        var result = await _pluginService.DeleteVersionAsync(versionId, deleteObject, ct);
+        return HandleResult(result);
     }
 }

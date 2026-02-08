@@ -24,7 +24,6 @@
 
   <ItemGroup>
     <Folder Include="Dtos\Responses\" />
-    <Folder Include="Endpoints\" />
     <Folder Include="Middlewares\" />
     <Folder Include="Auth\" />
   </ItemGroup>

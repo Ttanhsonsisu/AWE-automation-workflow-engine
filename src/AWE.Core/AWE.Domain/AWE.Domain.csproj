@@ -16,4 +16,8 @@
     <Folder Include="ValueObjects\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\AWE.Shared\AWE.Shared.csproj" />
+  </ItemGroup>
+
 </Project>

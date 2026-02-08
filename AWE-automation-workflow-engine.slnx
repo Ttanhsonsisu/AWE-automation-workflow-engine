@@ -36,6 +36,7 @@
     <Project Path="src/AWE.Core/AWE.Application/AWE.Application.csproj" />
     <Project Path="src/AWE.Core/AWE.Domain/AWE.Domain.csproj" />
     <Project Path="src/AWE.Core/AWE.Infrastructure/AWE.Infrastructure.csproj" />
+    <Project Path="src/AWE.Core/AWE.Sdk/AWE.Sdk.csproj" Id="8c186457-9900-474e-ae27-65f95f757d39" />
     <Project Path="src/AWE.Core/AWE.WorkflowEngine/AWE.WorkflowEngine.csproj" />
   </Folder>
 </Solution>
