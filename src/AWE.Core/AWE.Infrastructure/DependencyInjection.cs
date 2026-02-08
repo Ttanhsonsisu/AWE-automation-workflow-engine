@@ -1,28 +1,65 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using AWE.Application.Abstractions.Persistence;
+using AWE.Application.Services;
+using AWE.Infrastructure.ConfigOptions;
 using AWE.Infrastructure.Extensions;
-using AWE.Infrastructure.Messaging;
 using AWE.Infrastructure.Persistence;
+using AWE.Infrastructure.Persistence.Repositories;
+using AWE.Infrastructure.Plugins;
+using AWE.Infrastructure.Services;
 using AWE.Shared.Consts;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Minio;
 
 namespace AWE.Infrastructure;
 
+/// <summary>
+/// Extension methods for registering infrastructure services
+/// </summary>
 public static class DependencyInjection
 {
 
     public static IServiceCollection AddAwePersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("postgres");
+        var connectionString = configuration.GetConnectionString("postgres")
+            ?? throw new InvalidOperationException("Connection string not found");
 
         services.AddDbContext<ApplicationDbContext>(options =>
         {
-            options.UseNpgsql(connectionString);
+            options.UseNpgsql(connectionString, npgsqlOptions =>
+            {
+                npgsqlOptions.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName);
+                npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3);
+                npgsqlOptions.CommandTimeout(30);
+            });
+
+            // Enable sensitive data logging in dev 
+            if (configuration.GetValue<bool>("DetailedErrors"))
+            {
+                options.EnableSensitiveDataLogging();
+                options.EnableDetailedErrors();
+            }
         });
+
+        // Repository
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IWorkflowDefinitionRepository, WorkflowDefinitionRepository>();
+        services.AddScoped<IWorkflowInstanceRepository, WorkflowInstanceRepository>();
+        services.AddScoped<IJoinBarrierRepository, JoinBarrierRepository>();
+        services.AddScoped<IExecutionLogRepository, ExecutionLogRepository>();
+        services.AddScoped<IExecutionPointerRepository, ExecutionPointerRepository>();
+        services.AddScoped<IPluginPackageRepository, PluginPackageRepository>();
+        services.AddScoped<IPluginVersionRepository, PluginVersionRepository>();
+
+        // Service
+        services.AddAweObjectStorage(configuration);
+        services.AddSingleton<PluginLoader>();
+        services.AddScoped<IStorageService, MinioStorageService>();
+        services.AddScoped<IPluginService, PluginService>();
+        // Background service
+        // TODO:
 
         return services;
     }
@@ -79,5 +116,38 @@ public static class DependencyInjection
         });
 
         return services;
+    }
+
+    public static IServiceCollection AddAweObjectStorage(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<MinioOptions>(configuration.GetSection("Minio"));
+        var minioSettings = configuration.GetSection("Minio").Get<MinioOptions>()
+            ?? new MinioOptions
+            {
+                Endpoint = "localhost:9100",
+                AccessKey = "awe-service",
+                SecretKey = "change_me",
+                BucketName = "awe-plugins",
+                UseSSL = false,
+                Region = "us-east-1"
+            };
+
+        // register Minio SDK Client
+        services.AddMinio(config => config
+            .WithEndpoint(minioSettings.Endpoint)
+            .WithCredentials(minioSettings.AccessKey, minioSettings.SecretKey)
+            .WithSSL(minioSettings.UseSSL)
+        );
+
+        services.AddScoped<IStorageService, MinioStorageService>();
+
+        return services;
+    }
+    public static async Task InitializeDatabaseAsync(this IServiceProvider serviceProvider)
+    {
+        using var scope = serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        await context.Database.MigrateAsync();
     }
 }

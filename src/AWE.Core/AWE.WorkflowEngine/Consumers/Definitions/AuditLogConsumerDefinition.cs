@@ -1,4 +1,4 @@
-﻿using AWE.Infrastructure.Messaging;
+﻿using AWE.Infrastructure.Extensions;
 using MassTransit;
 
 namespace AWE.WorkflowEngine.Consumers.Definitions;

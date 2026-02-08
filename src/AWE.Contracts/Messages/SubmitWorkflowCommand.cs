@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 
 #region Workflow Submission
 
@@ -52,9 +53,11 @@ public record ExecutePluginCommand(
 /// Event delivery is at-least-once; consumers must tolerate duplicates.
 /// </remarks>
 public record StepCompletedEvent(
-    Guid InstanceId,                          // Workflow instance identifier
+    Guid WorkflowInstanceId,                          // Workflow instance identifier
+    Guid ExecutionPointerId,
     Guid StepId,                              // Step instance identifier
-    Dictionary<string, object> OutputData     // Step execution output
+    JsonDocument Output,     // Step execution output
+    DateTime CompletedAt
 );
 
 /// <summary>

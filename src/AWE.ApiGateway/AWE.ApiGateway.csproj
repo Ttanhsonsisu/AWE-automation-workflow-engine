@@ -22,4 +22,11 @@
     <ProjectReference Include="..\AWE.ServiceDefaults\AWE.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Dtos\Responses\" />
+    <Folder Include="Endpoints\" />
+    <Folder Include="Middlewares\" />
+    <Folder Include="Auth\" />
+  </ItemGroup>
+
 </Project>

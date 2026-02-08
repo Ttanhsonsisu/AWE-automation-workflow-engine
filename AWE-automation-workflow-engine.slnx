@@ -15,16 +15,23 @@
     <File Path="README.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/AWE.ApiGateway/AWE.ApiGateway.csproj" />
     <Project Path="src/AWE.AppHost/AWE.AppHost.csproj" />
-    <Project Path="src/AWE.Contracts/AWE.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/AWE.Plugins/">
     <Project Path="src/AWE.Plugin.Abstractions/AWE.Plugin.Abstractions.csproj" />
-    <Project Path="src/AWE.Plugins/AWE.Plugins.csproj" />
-    <Project Path="src/AWE.ServiceDefaults/AWE.ServiceDefaults.csproj" />
-    <Project Path="src/AWE.Shared/AWE.Shared.csproj" />
+  </Folder>
+  <Folder Name="/src/AWE.Presentation/">
+    <Project Path="src/AWE.ApiGateway/AWE.ApiGateway.csproj" />
+  </Folder>
+  <Folder Name="/src/AWE.Workers/">
     <Project Path="src/AWE.Worker/AWE.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/" />
+  <Folder Name="/src/AWE.BuildingBlocks/">
+    <Project Path="src/AWE.Contracts/AWE.Contracts.csproj" />
+    <Project Path="src/AWE.ServiceDefaults/AWE.ServiceDefaults.csproj" />
+    <Project Path="src/AWE.Shared/AWE.Shared.csproj" />
+  </Folder>
   <Folder Name="/src/AWE.Core/">
     <Project Path="src/AWE.Core/AWE.Application/AWE.Application.csproj" />
     <Project Path="src/AWE.Core/AWE.Domain/AWE.Domain.csproj" />

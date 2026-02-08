@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace AWE.Shared.Consts;
+﻿namespace AWE.Shared.Consts;
 /// <summary>
 /// Defines messaging-related constants used across the AWE platform.
 /// </summary>
