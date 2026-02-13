@@ -1,4 +1,5 @@
 ﻿using AWE.Contracts.Messages;
+using AWE.Infrastructure.Persistence;
 using MassTransit;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,20 +17,32 @@ public class WorkflowController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Submit([FromBody] SubmitRequest request)
+    public async Task<IActionResult> SubmitWorkflow([FromBody] SubmitRequest request, [FromServices] ApplicationDbContext dbcontext)
     {
-        var correlationId = Guid.NewGuid();
-
-        // Gửi lệnh vào Queue: q.workflow.core (Quorum)
-        await _publishEndpoint.Publish(new SubmitWorkflowCommand(
+        // Tạo Command gửi xuống Engine
+        var command = new SubmitWorkflowCommand(
             DefinitionId: request.DefinitionId,
-            JobName: request.JobName,
-            CorrelationId: correlationId,
-            InputData: request.InputData
-        ));
+            JobName: request.JobName ?? $"Job-{DateTime.UtcNow:HHmmss}",
+            InputData: request.InputData?.ToString() ?? "{}", // Chuyển JSON Object thành String
+            CorrelationId: Guid.NewGuid()
+        );
 
-        return Accepted(new { CorrelationId = correlationId, Status = "Queued" });
+        // Bắn vào RabbitMQ
+        await _publishEndpoint.Publish(command);
+
+        await dbcontext.SaveChangesAsync();
+
+        return Accepted(new
+        {
+            Message = "Workflow request submitted",
+            TrackingId = command.CorrelationId
+        });
     }
 }
 
-public record SubmitRequest(Guid DefinitionId, string JobName, string InputData);
+// Model nhận dữ liệu từ Postman
+public record SubmitRequest(
+    Guid DefinitionId,
+    string? JobName,
+    object? InputData // Để object để Postman gửi JSON thoải mái
+);

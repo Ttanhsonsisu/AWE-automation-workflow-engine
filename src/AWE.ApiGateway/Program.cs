@@ -63,21 +63,21 @@ app.MapControllers();
 
 
 // =============== API TEST =============
-app.MapPost("/api/workflows", async (
-    [FromBody] SubmitWorkflowCommand request,
-    [FromServices] IPublishEndpoint publishEndpoint,
-    [FromServices] ApplicationDbContext dbContext) =>
-{
-    await publishEndpoint.Publish(request);
+//app.MapPost("/api/workflows", async (
+//    [FromBody] SubmitWorkflowCommand request,
+//    [FromServices] IPublishEndpoint publishEndpoint,
+//    [FromServices] ApplicationDbContext dbContext) =>
+//{
+//    await publishEndpoint.Publish(request);
 
-    await dbContext.SaveChangesAsync();
+//    await dbContext.SaveChangesAsync();
 
-    return Results.Accepted(value: new
-    {
-        Message = "sended command !",
-        JobId = request.DefinitionId
-    });
-});
+//    return Results.Accepted(value: new
+//    {
+//        Message = "sended command !",
+//        JobId = request.DefinitionId
+//    });
+//});
 // ===========================================
 
 app.Run();

@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\AWE.Worker.JobExecution\AWE.Worker.JobExecution.csproj" />
     <ProjectReference Include="..\AWE.ApiGateway\AWE.ApiGateway.csproj" />
     <ProjectReference Include="..\AWE.Worker\AWE.Worker.csproj" />
   </ItemGroup>

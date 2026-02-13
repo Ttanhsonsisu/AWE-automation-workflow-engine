@@ -153,3 +153,4 @@ App_Data/
 **/appsettings.Development.json
 **/appsettings.Staging.json
 **/appsettings.Production.json
+**/PublishProfiles

@@ -1,7 +1,7 @@
 ﻿using AWE.Infrastructure.Extensions;
 using MassTransit;
 
-namespace AWE.WorkflowEngine.Consumers.Definitions;
+namespace AWE.Worker.Definitions;
 
 /// <summary>
 /// Consumer definition for plugin execution.

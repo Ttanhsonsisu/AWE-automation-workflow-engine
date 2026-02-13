@@ -2,9 +2,10 @@
 using System.Collections.Generic;
 using System.Text;
 using AWE.Infrastructure.Extensions;
+using AWE.Worker.JobExecution.Consumer;
 using MassTransit;
 
-namespace AWE.WorkflowEngine.Consumers.Definitions;
+namespace AWE.Worker.JobExecution.Consumer.Definitions;
 
 /// <summary>
 /// Consumer definition for job execution commands.

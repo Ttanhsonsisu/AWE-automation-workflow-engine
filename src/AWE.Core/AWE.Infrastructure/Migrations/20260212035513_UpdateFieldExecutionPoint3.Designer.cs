@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AWE.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260208053505_InitialCreate")]
-    partial class InitialCreate
+    [Migration("20260212035513_UpdateFieldExecutionPoint3")]
+    partial class UpdateFieldExecutionPoint3
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -102,6 +102,14 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("active");
 
+                    b.Property<string>("BranchId")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasDefaultValue("ROOT")
+                        .HasColumnName("branch_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -118,6 +126,14 @@ namespace AWE.Infrastructure.Migrations
                     b.Property<DateTime?>("LeasedUntil")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("leased_until");
+
+                    b.Property<JsonDocument>("Output")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("output");
+
+                    b.Property<Guid?>("ParentTokenId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_token_id");
 
                     b.Property<Guid?>("PredecessorId")
                         .HasColumnType("uuid")
@@ -140,10 +156,6 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("status");
 
-                    b.Property<JsonDocument>("StepContext")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("step_context");
-
                     b.Property<string>("StepId")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -151,7 +163,7 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnName("step_id");
 
                     b.HasKey("Id")
-                        .HasName("pk_execution_pointer");
+                        .HasName("pk_execution_pointers");
 
                     b.HasIndex("CreatedAt")
                         .HasDatabaseName("ix_execution_pointers_created_at");
@@ -161,16 +173,12 @@ namespace AWE.Infrastructure.Migrations
 
                     b.HasIndex("Status", "LeasedUntil")
                         .HasDatabaseName("ix_execution_pointers_zombie")
-                        .HasFilter("status = 'Running'");
+                        .HasFilter("\"status\" = 'Running'");
 
-                    b.HasIndex("InstanceId", "StepId", "Status")
-                        .HasDatabaseName("ix_execution_pointers_instance_step_status");
+                    b.HasIndex("InstanceId", "ParentTokenId", "StepId")
+                        .HasDatabaseName("ix_execution_pointers_join_barrier");
 
-                    b.HasIndex("Status", "LeasedUntil", "CreatedAt")
-                        .HasDatabaseName("ix_execution_pointers_polling")
-                        .HasFilter("active = true");
-
-                    b.ToTable("ExecutionPointer", (string)null);
+                    b.ToTable("ExecutionPointers", (string)null);
                 });
 
             modelBuilder.Entity("AWE.Domain.Entities.JoinBarrier", b =>
@@ -665,7 +673,7 @@ namespace AWE.Infrastructure.Migrations
                         .WithMany("ExecutionLogs")
                         .HasForeignKey("ExecutionPointerId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("fk_execution_log_execution_pointer_execution_pointer_id");
+                        .HasConstraintName("fk_execution_log_execution_pointers_execution_pointer_id");
 
                     b.HasOne("AWE.Domain.Entities.WorkflowInstance", "Instance")
                         .WithMany("ExecutionLogs")
@@ -686,7 +694,7 @@ namespace AWE.Infrastructure.Migrations
                         .HasForeignKey("InstanceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_execution_pointer_workflow_instances_instance_id");
+                        .HasConstraintName("fk_execution_pointers_workflow_instances_instance_id");
 
                     b.Navigation("Instance");
                 });
