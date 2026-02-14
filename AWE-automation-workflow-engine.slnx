@@ -26,6 +26,7 @@
   </Folder>
   <Folder Name="/src/AWE.Workers/">
     <Project Path="AWE.Worker.JobExecution/AWE.Worker.JobExecution.csproj" />
+    <Project Path="AWE.Worker.WorkflowEvent/AWE.Worker.WorkflowEvent.csproj" />
     <Project Path="src/AWE.Worker/AWE.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/" />

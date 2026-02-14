@@ -73,4 +73,40 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
         _context.ExecutionPointers.Update(pointer);
         return Task.CompletedTask;
     }
+
+    public async Task<bool> RenewLeaseAsync(Guid pointerId, string workerId, TimeSpan extension, CancellationToken ct = default)
+    {
+        var affected = await _context.Set<ExecutionPointer>()
+            .Where(x => x.Id == pointerId && x.LeasedBy == workerId && x.Status == ExecutionPointerStatus.Running)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.LeasedUntil, DateTime.UtcNow.Add(extension)),
+                ct);
+
+        return affected > 0;
+    }
+
+    public async Task<List<ExecutionPointer>> GetExpiredPointersAsync(DateTime utcNow, int count, CancellationToken ct = default)
+    {
+        return await _context.Set<ExecutionPointer>()
+            .Where(x => x.Status == ExecutionPointerStatus.Running
+                        && x.LeasedUntil < utcNow)
+            .OrderBy(x => x.LeasedUntil) // Ưu tiên xử lý cái chết lâu nhất
+            .Take(count)
+            .ToListAsync(ct);
+    }
+
+    public async Task<int> ResetRawPointersAsync(List<Guid> pointerIds, CancellationToken ct = default)
+    {
+        if (pointerIds.Count == 0) return 0;
+
+        // Reset về Pending, xóa LeasedBy, tăng RetryCount
+        return await _context.Set<ExecutionPointer>()
+            .Where(x => pointerIds.Contains(x.Id))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, ExecutionPointerStatus.Pending)
+                .SetProperty(p => p.LeasedBy, (string?)null)
+                .SetProperty(p => p.LeasedUntil, (DateTime?)null)
+                .SetProperty(p => p.RetryCount, p => p.RetryCount + 1),
+                ct);
+    }
 }

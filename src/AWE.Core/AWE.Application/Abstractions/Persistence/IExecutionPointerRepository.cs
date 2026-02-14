@@ -27,4 +27,13 @@ public interface IExecutionPointerRepository
 
     Task AddPointerAsync(ExecutionPointer pointer, CancellationToken cancellationToken = default);
     Task UpdatePointerAsync(ExecutionPointer pointer, CancellationToken cancellationToken = default);
+
+    // For Worker: Gia hạn thời gian sống
+    Task<bool> RenewLeaseAsync(Guid pointerId, string workerId, TimeSpan extension, CancellationToken ct = default);
+
+    // for cho Engine (Recovery): Tìm các Pointer đã chết (Zombie)
+    Task<List<ExecutionPointer>> GetExpiredPointersAsync(DateTime utcNow, int count, CancellationToken ct = default);
+
+    // Dành cho Engine (Recovery): Reset Pointer về Pending
+    Task<int> ResetRawPointersAsync(List<Guid> pointerIds, CancellationToken ct = default);
 }

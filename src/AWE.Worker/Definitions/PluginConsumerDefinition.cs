@@ -1,4 +1,5 @@
 ﻿using AWE.Infrastructure.Extensions;
+using AWE.Shared.Consts;
 using MassTransit;
 
 namespace AWE.Worker.Definitions;
@@ -13,6 +14,11 @@ namespace AWE.Worker.Definitions;
 /// </remarks>
 public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
 {
+    public PluginConsumerDefinition()
+    {
+        // Đặt tên Queue cứng: "q.workflow.plugin"
+        EndpointName = MessagingConstants.QueuePlugin;
+    }
     protected override void ConfigureConsumer(IReceiveEndpointConfigurator endpointConfigurator,
         IConsumerConfigurator<PluginConsumer> consumerConfigurator,
         IRegistrationContext context)
@@ -58,7 +64,8 @@ public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
             // Use classic queue for lower latency and simpler semantics.
             // This consumer handles all workflow step execution events
             // routed with the "workflow.step.#" wildcard.
-            rabbit.ConfigureClassicQueue("awe.events", "workflow.step.#");
+            rabbit.ConfigureClassicQueue(MessagingConstants.ExchangeWorkflow,
+                MessagingConstants.PatternPlugin);
         }
     }
 }

@@ -24,4 +24,5 @@ public class MessagingConstants
     public const string PatternCmd = "workflow.cmd.#";
     public const string PatternPlugin = "workflow.plugin.#";
     public const string PatternAudit = "workflow.#";
+    public const string PatternEvent = "workflow.event.#";
 }

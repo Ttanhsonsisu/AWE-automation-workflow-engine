@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
@@ -137,6 +134,8 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         // 2. Resolve Variables
         string resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
 
+        var routingKey = "workflow.plugin.execute";
+
         // 3. Send Command
         await _publishEndpoint.Publish(new ExecutePluginCommand(
             InstanceId: instance.Id,
@@ -144,7 +143,10 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
             NodeId: pointer.StepId,
             StepType: stepType,
             Payload: resolvedPayload
-        ));
+        ), context =>
+        {
+            context.SetRoutingKey(routingKey);
+        });
     }
 
     private void MergeStepOutputToContext(WorkflowInstance instance, string nodeId, JsonDocument output)
