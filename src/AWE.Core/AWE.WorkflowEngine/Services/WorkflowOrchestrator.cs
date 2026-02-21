@@ -3,6 +3,9 @@ using System.Text.Json.Nodes;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
+using AWE.Domain.Enums;
+using AWE.Shared.Consts;
+using AWE.Shared.Primitives;
 using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 using Microsoft.Extensions.Logging;
@@ -37,84 +40,140 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         _logger = logger;
     }
 
-    public async Task StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId)
+    public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId)
     {
-        var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
-        if (def == null) throw new Exception($"Definition {definitionId} not found");
-
-        // 1. Init Instance Context
-        var rawInput = string.IsNullOrWhiteSpace(inputData) ? "{}" : inputData;
-        var initialContext = new JsonObject
+        try
         {
-            ["Inputs"] = System.Text.Json.Nodes.JsonNode.Parse(rawInput),
-            ["Steps"] = new System.Text.Json.Nodes.JsonObject(),
-            ["System"] = new System.Text.Json.Nodes.JsonObject
+            // 1. Validation Logic
+            var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
+            if (def == null)
+                return Result.Failure<Guid>(Error.NotFound("Definition.NotFound", $"Definition {definitionId} not found"));
+
+            // 2. Parse Input an toàn
+            JsonNode? inputsNode;
+            try
             {
-                ["CorrelationId"] = correlationId,
-                ["JobName"] = jobName, // [UPDATE] Lưu JobName vào Context hệ thống
-                ["StartedAt"] = DateTime.UtcNow
+                var rawInput = string.IsNullOrWhiteSpace(inputData) ? "{}" : inputData;
+                inputsNode = JsonNode.Parse(rawInput);
             }
-        };
+            catch (JsonException)
+            {
+                return Result.Failure<Guid>(Error.Validation("Input.InvalidJson", "Input data is not valid JSON"));
+            }
 
-        // 2. Tạo Instance
-        // (Nếu Entity WorkflowInstance có cột Description/Name thì gán vào đó luôn)
-        var instance = new WorkflowInstance(def.Id, def.Version, JsonDocument.Parse(initialContext.ToJsonString()));
-        // instance.Description = jobName; // Nếu có cột này
+            // 3. Init Context
+            var initialContext = new JsonObject
+            {
+                ["Inputs"] = inputsNode,
+                ["Steps"] = new JsonObject(),
+                ["System"] = new JsonObject
+                {
+                    ["CorrelationId"] = correlationId ?? Guid.NewGuid(),
+                    ["JobName"] = jobName,
+                    ["StartedAt"] = DateTime.UtcNow
+                }
+            };
 
-        await _instanceRepo.AddInstanceAsync(instance);
+            // 4. Create Instance
+            var instance = new WorkflowInstance(def.Id, def.Version, JsonDocument.Parse(initialContext.ToJsonString()));
+            // Nếu entity có cột Status, set nó là Running
+            // instance.Status = WorkflowStatus.Running; 
 
-        // 3. Tìm Start Node & Tạo Pointer
-        var startNodeId = FindStartNodeId(def.DefinitionJson); // Logic tìm node đầu (đã làm ở bài trước)
-        var pointer = new ExecutionPointer(instance.Id, startNodeId);
-        await _pointerRepo.AddPointerAsync(pointer);
+            await _instanceRepo.AddInstanceAsync(instance);
 
-        await _uow.SaveChangesAsync(); // Commit Transaction khởi tạo
+            // 5. Find Start Node & Create Pointer
+            var startNodeId = FindStartNodeId(def.DefinitionJson);
+            if (string.IsNullOrEmpty(startNodeId))
+                return Result.Failure<Guid>(Error.Validation("Definition.NoStartNode", "Cannot find start node"));
 
-        _logger.LogInformation("🚀 [ENGINE] Started Job '{Name}' (ID: {Id})", jobName, instance.Id);
+            var pointer = new ExecutionPointer(instance.Id, startNodeId);
+            await _pointerRepo.AddPointerAsync(pointer);
 
-        // 4. Dispatch
-        await DispatchPointerAsync(instance, pointer, def);
+            // 7. Commit Transaction (Lưu DB + Outbox Message cùng lúc)
+            await _uow.SaveChangesAsync();
+
+            // 6. Dispatch (Gửi lệnh thực thi bước đầu tiên)
+            await DispatchPointerAsync(instance, pointer, def);
+
+            _logger.LogInformation("🚀 [ENGINE] Started Job '{Name}' (ID: {Id})", jobName, instance.Id);
+
+            return Result.Success(instance.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "System error in StartWorkflowAsync");
+            return Result.Failure<Guid>(Error.Unexpected("System.StartError", ex.Message));
+        }
     }
 
-    public async Task HandleStepCompletionAsync(Guid instanceId, Guid executionPointerId, JsonDocument? eventOutput)
+    public async Task<Result> HandleStepCompletionAsync(Guid instanceId, Guid executionPointerId, JsonDocument? eventOutput)
     {
         // 1. Load State
-        var instance = await _instanceRepo.GetInstanceByIdAsync(instanceId);
-        var pointer = await _pointerRepo.GetPointerByIdAsync(executionPointerId);
-
-        if (pointer == null) return; // Should not happen
-
-        // 2. Merge Context (Quan trọng: Đọc Output từ Pointer trong DB thay vì Event để chắc ăn)
-        if (pointer.Output != null)
+        try
         {
-            MergeStepOutputToContext(instance, pointer.StepId, pointer.Output);
-        }
+            // 1. Load Data
+            var instance = await _instanceRepo.GetInstanceByIdAsync(instanceId);
+            var pointer = await _pointerRepo.GetPointerByIdAsync(executionPointerId);
 
-        // 3. Navigation (Graph Traversal)
-        var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
-        var nextNodeIds = FindNextNodes(def.DefinitionJson, pointer.StepId);
+            if (instance == null)
+                return Result.Failure(Error.NotFound("Instance.NotFound", $"Instance {instanceId} not found"));
 
-        if (nextNodeIds.Count == 0)
-        {
-            instance.Complete(); // End Workflow
-            _logger.LogInformation("🏁 Workflow {Id} Completed.", instanceId);
-        }
-        else
-        {
-            foreach (var nextNodeId in nextNodeIds)
+            if (pointer == null || pointer.Status == ExecutionPointerStatus.Completed)
             {
-                // Sequence Flow: ParentTokenId giữ nguyên
-                var newPointer = new ExecutionPointer(instance.Id, nextNodeId,
-                    parentTokenId: pointer.ParentTokenId,
-                    branchId: pointer.BranchId);
-
-                await _pointerRepo.AddPointerAsync(newPointer);
-                await _uow.SaveChangesAsync();
-
-                await DispatchPointerAsync(instance, newPointer, def);
+                _logger.LogWarning("Pointer {PointerId} not found, possibly already processed.", executionPointerId);
+                return Result.Success(); // Coi như thành công để khỏi retry
             }
+
+            pointer.Status = ExecutionPointerStatus.Completed;
+
+            // 2. Update Context (Merge Output của Step vào Workflow Data)
+            // Ưu tiên dùng output lưu trong DB (nếu Worker đã update pointer) hoặc từ Event
+            var outputToMerge = pointer.Output ?? eventOutput;
+            if (outputToMerge != null)
+            {
+                MergeStepOutputToContext(instance, pointer.StepId, outputToMerge);
+                // Mark pointer as completed in DB logic (nếu Repository chưa làm)
+                // pointer.Status = PointerStatus.Completed; 
+                // pointer.EndTime = DateTime.UtcNow;
+            }
+
+            // 3. Navigation (Tìm bước tiếp theo)
+            var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
+            var nextNodeIds = FindNextNodes(def!.DefinitionJson, pointer.StepId);
+
+            if (nextNodeIds.Count == 0)
+            {
+                // End Workflow
+                // instance.Status = WorkflowStatus.Completed;
+                // instance.EndTime = DateTime.UtcNow;
+                _logger.LogInformation("🏁 Workflow {Id} Completed successfully.", instanceId);
+            }
+            else
+            {
+                // Spawn next pointers
+                foreach (var nextNodeId in nextNodeIds)
+                {
+                    var newPointer = new ExecutionPointer(instance.Id, nextNodeId,
+                        parentTokenId: pointer.ParentTokenId,
+                        branchId: pointer.BranchId);
+
+                    await _pointerRepo.AddPointerAsync(newPointer);
+
+                    // Dispatch lệnh thực thi cho pointer mới
+                    await DispatchPointerAsync(instance, newPointer, def);
+                }
+            }
+
+            // 4. Save Changes
+            await _uow.SaveChangesAsync();
+
+            return Result.Success();
         }
-        await _uow.SaveChangesAsync();
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "System error in HandleStepCompletionAsync");
+            return Result.Failure(Error.Unexpected("System.StepCompletionError", ex.Message));
+        }
     }
 
     // --- Private Helpers ---
@@ -134,7 +193,9 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         // 2. Resolve Variables
         string resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
 
-        var routingKey = "workflow.plugin.execute";
+        //var routingKey = "workflow.plugin.execute";
+        // change const:
+        var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
 
         // 3. Send Command
         await _publishEndpoint.Publish(new ExecutePluginCommand(
@@ -197,5 +258,39 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         throw new Exception($"Step {stepId} not found in definition");
     }
 
-    public Task HandleStepFailureAsync(Guid instanceId, Guid pointerId, string error) => Task.CompletedTask;
+    public async Task<Result> HandleStepFailureAsync(Guid instanceId, Guid pointerId, string error)
+    {
+        try
+        {
+            // Nếu không có pointerId (VD lỗi từ consumer không xác định), log và bỏ qua
+            if (pointerId == Guid.Empty)
+            {
+                _logger.LogWarning("Received failure for Instance {Id} but PointerId is empty. Error: {Error}", instanceId, error);
+                return Result.Success();
+            }
+
+            var pointer = await _pointerRepo.GetPointerByIdAsync(pointerId);
+            if (pointer != null)
+            {
+                // Cập nhật trạng thái lỗi vào DB
+                // pointer.Status = PointerStatus.Failed;
+                // pointer.ErrorMessage = errorMsg;
+
+                // TODO: Logic Retry workflow ở đây (nếu config cho phép retry)
+                // if (CanRetry(pointer)) { ... } else { instance.Status = WorkflowStatus.Failed; }
+
+                await _uow.SaveChangesAsync();
+            }
+
+            _logger.LogInformation("Record failure for Step {PointerId}: {Error}", pointerId, error);
+
+            // Trả về Success để confirm là "Đã ghi nhận lỗi xong", không cần MassTransit retry nữa
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            // Nếu lỗi DB khi ghi log lỗi -> Cần Retry
+            return Result.Failure(Error.Unexpected("System.StepFailureError", ex.Message));
+        }
+    }
 }

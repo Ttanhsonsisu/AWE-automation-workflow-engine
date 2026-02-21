@@ -15,10 +15,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\AWE.Worker.JobExecution\AWE.Worker.JobExecution.csproj" />
-    <ProjectReference Include="..\..\AWE.Worker.WorkflowEvent\AWE.Worker.WorkflowEvent.csproj" />
     <ProjectReference Include="..\AWE.ApiGateway\AWE.ApiGateway.csproj" />
     <ProjectReference Include="..\AWE.Worker\AWE.Worker.csproj" />
+    <ProjectReference Include="..\Worker\AWE.Wokrer.Engine\AWE.Wokrer.Engine.csproj" />
   </ItemGroup>
 
 </Project>

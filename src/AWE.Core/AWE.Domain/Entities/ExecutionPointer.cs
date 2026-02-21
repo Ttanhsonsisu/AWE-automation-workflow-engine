@@ -13,7 +13,7 @@ public class ExecutionPointer : Entity
     public Guid? ParentTokenId { get; private set; }
     public string BranchId { get; private set; }
 
-    public ExecutionPointerStatus Status { get; private set; }
+    public ExecutionPointerStatus Status { get; set; }
     public bool Active { get; private set; }
 
     // --- Leasing (Zombie Detection) ---
