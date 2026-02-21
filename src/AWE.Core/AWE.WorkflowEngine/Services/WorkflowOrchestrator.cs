@@ -118,13 +118,11 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
             if (instance == null)
                 return Result.Failure(Error.NotFound("Instance.NotFound", $"Instance {instanceId} not found"));
 
-            if (pointer == null || pointer.Status == ExecutionPointerStatus.Completed)
+            if (pointer == null)
             {
                 _logger.LogWarning("Pointer {PointerId} not found, possibly already processed.", executionPointerId);
                 return Result.Success(); // Coi như thành công để khỏi retry
             }
-
-            pointer.Status = ExecutionPointerStatus.Completed;
 
             // 2. Update Context (Merge Output của Step vào Workflow Data)
             // Ưu tiên dùng output lưu trong DB (nếu Worker đã update pointer) hoặc từ Event
@@ -151,6 +149,8 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
             else
             {
                 // Spawn next pointers
+                // 1. Gom các Pointer mới lại
+                var newPointers = new List<ExecutionPointer>();
                 foreach (var nextNodeId in nextNodeIds)
                 {
                     var newPointer = new ExecutionPointer(instance.Id, nextNodeId,
@@ -158,14 +158,19 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
                         branchId: pointer.BranchId);
 
                     await _pointerRepo.AddPointerAsync(newPointer);
+                    newPointers.Add(newPointer);
+                }
 
-                    // Dispatch lệnh thực thi cho pointer mới
-                    await DispatchPointerAsync(instance, newPointer, def);
+                // 2. BẮT BUỘC LƯU DATABASE TRƯỚC
+                await _uow.SaveChangesAsync();
+
+                // 3. ĐÃ CÓ TRONG DB RỒI -> MỚI GỬI LỆNH CHO WORKER
+                var def2 = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
+                foreach (var newPointer in newPointers)
+                {
+                    await DispatchPointerAsync(instance, newPointer, def2);
                 }
             }
-
-            // 4. Save Changes
-            await _uow.SaveChangesAsync();
 
             return Result.Success();
         }
