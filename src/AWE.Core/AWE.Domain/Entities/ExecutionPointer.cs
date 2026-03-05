@@ -156,4 +156,19 @@ public class ExecutionPointer : Entity
         if (Status != ExecutionPointerStatus.Running)
             throw new InvalidOperationException($"Invalid status transition from {Status}");
     }
+
+    /// <summary>
+    /// Hàm dùng riêng cho việc đánh thức Node "Wait" từ API bên ngoài
+    /// </summary>
+    /// <param name="output"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    public void CompleteFromWait(JsonDocument? output)
+    {
+        if (Status != ExecutionPointerStatus.WaitingForEvent)
+            throw new InvalidOperationException($"Cannot resume step from status: {Status}");
+
+        Status = ExecutionPointerStatus.Completed;
+        Active = false; // Đã xong nhiệm vụ
+        Output = output; // Lưu data từ Webhook gửi vào
+    }
 }

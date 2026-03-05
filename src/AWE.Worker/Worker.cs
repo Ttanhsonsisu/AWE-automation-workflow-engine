@@ -160,6 +160,7 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             {
                 { "JoinStatus", "Barrier Passed successfully" }
             },
+           
 
             // Nếu gặp loại chưa định nghĩa -> Lỗi
             _ => throw new NotImplementedException($"Internal Plugin '{stepType}' not implemented yet.")

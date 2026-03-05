@@ -1,6 +1,7 @@
-﻿using AWE.Wokrer.Engine.Consumers;
+﻿using AWE.Infrastructure.Extensions;
+using AWE.Infrastructure.Persistence;
+using AWE.Wokrer.Engine.Consumers;
 using MassTransit;
-using AWE.Infrastructure.Extensions;
 
 namespace AWE.Wokrer.Engine.Definitions;
 
@@ -40,7 +41,8 @@ public class JobExecutionConsumerDefinition : ConsumerDefinition<JobExecutionCon
 
         // In-memory outbox to ensure exactly-once publish semantics
         // Prevents duplicate outgoing messages during in-place retries
-        endpointConfigurator.UseInMemoryOutbox(context);
+        //endpointConfigurator.UseInMemoryOutbox(context);
+        endpointConfigurator.UseEntityFrameworkOutbox<ApplicationDbContext>(context);
 
         // =====================================================
         // TOPOLOGY – RabbitMQ queue and binding configuration

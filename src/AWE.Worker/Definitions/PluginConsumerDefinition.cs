@@ -1,4 +1,5 @@
 ﻿using AWE.Infrastructure.Extensions;
+using AWE.Infrastructure.Persistence;
 using AWE.Shared.Consts;
 using MassTransit;
 
@@ -54,8 +55,8 @@ public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
 
         // In-memory outbox ensures outgoing messages are published
         // only once during consumer retries.
-        endpointConfigurator.UseInMemoryOutbox(context);
-
+        //endpointConfigurator.UseInMemoryOutbox(context);
+        endpointConfigurator.UseEntityFrameworkOutbox<ApplicationDbContext>(context);
         // =====================================================
         // TOPOLOGY – RabbitMQ classic queue binding
         // =====================================================

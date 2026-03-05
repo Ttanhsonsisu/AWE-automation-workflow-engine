@@ -51,9 +51,10 @@ public static class DependencyInjection
             // Enable sensitive data logging in dev 
             if (configuration.GetValue<bool>("DetailedErrors"))
             {
-                options.EnableSensitiveDataLogging();
+                options.EnableSensitiveDataLogging(false);
                 options.EnableDetailedErrors();
             }
+
         });
 
         // Repository

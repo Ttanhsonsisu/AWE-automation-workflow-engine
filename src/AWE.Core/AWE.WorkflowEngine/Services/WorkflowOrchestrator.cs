@@ -7,6 +7,7 @@ using AWE.Domain.Enums;
 using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using AWE.WorkflowEngine.Interfaces;
+using Jint;
 using MassTransit;
 using Medallion.Threading;
 using Microsoft.Extensions.Logging;
@@ -286,10 +287,29 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
 
     private bool EvaluateCondition(string conditionExpression, JsonDocument context)
     {
-        // TODO: Logic phân tích biểu thức (Jint / NCalc) sẽ triển khai sau.
-        // Tạm thời hardcode true để workflow chạy được.
-        if (conditionExpression == "false") return false;
-        return true;
+        // TODO: Logic phân tích biểu thức with jint
+        if (string.IsNullOrWhiteSpace(conditionExpression))
+        {
+            return true;
+        }
+
+        try
+        {
+            string resolvedExpression = _resolver.Resolve(conditionExpression, context);
+
+            // 2. Dùng Jint để thực thi chuỗi biểu thức như code Javascript
+            var engine = new Jint.Engine();
+            var result = engine.Evaluate(resolvedExpression);
+
+            // 3. Ép kiểu kết quả về Boolean
+            return result.AsBoolean();
+
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "⚠️ Invalid condition expression: {Expression}", conditionExpression);
+            return false;
+        }
     }
 
     private int GetIncomingEdgesCount(JsonDocument defJson, string stepId)
@@ -321,6 +341,19 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         var stepDef = GetStepDefinition(def.DefinitionJson, pointer.StepId);
         string stepType = stepDef.GetProperty("Type").GetString()!;
 
+        // logic đóng bẳng for node wait
+        if (stepType == "Wait")
+        {
+            pointer.Status = ExecutionPointerStatus.WaitingForEvent;
+
+            // Vì DispatchPointerAsync thường được gọi sau SaveChanges, 
+            // ta cần SaveChanges thêm 1 lần nữa để lưu trạng thái Waiting
+            await _uow.SaveChangesAsync();
+
+            _logger.LogInformation("Workflow {InstanceId} is PAUSED at Step {StepId}. Waiting for external trigger.", instance.Id, pointer.StepId);
+            return; // DỪNG TẠI ĐÂY, KHÔNG PUBLISH QUA RABBITMQ
+        }
+
         // 1. Get Inputs Template
         string rawInputs = "{}";
         if (stepDef.TryGetProperty("Inputs", out var inputsElem))
@@ -332,7 +365,6 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         string resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
 
         //var routingKey = "workflow.plugin.execute";
-        // change const:
         var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
 
         // 3. Send Command
