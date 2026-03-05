@@ -156,6 +156,11 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             },
             "CrashTest" => await RunCrashTestAsync(ct),
 
+            "Join" => new Dictionary<string, object>
+            {
+                { "JoinStatus", "Barrier Passed successfully" }
+            },
+
             // Nếu gặp loại chưa định nghĩa -> Lỗi
             _ => throw new NotImplementedException($"Internal Plugin '{stepType}' not implemented yet.")
         };

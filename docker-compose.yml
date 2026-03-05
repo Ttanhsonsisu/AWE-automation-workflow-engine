@@ -10,6 +10,7 @@ volumes:
   rabbitmq-data:
   postgres-data:
   minio-data:
+  redis-data:
 
 services:
 
@@ -40,6 +41,37 @@ services:
         - postgres-data:/var/lib/postgresql/data
       networks:
         - awe-network
+
+  # REDIS
+  redis:
+    image: redis:${REDIS_IMAGE_TAG}
+    container_name: awe-redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --requirepass "${REDIS_PASSWORD}" --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - awe-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # REDIS INSIGHT (GUI)
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: awe-redisinsight
+    restart: unless-stopped
+    ports:
+      - "${REDISINSIGHT_PORT:-5540}:5540"
+    networks:
+      - awe-network
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # RABBITMQ   
   rabbitmq:

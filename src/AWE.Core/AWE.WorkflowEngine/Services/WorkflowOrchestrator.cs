@@ -8,6 +8,7 @@ using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
+using Medallion.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -20,6 +21,7 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
     private readonly IExecutionPointerRepository _pointerRepo;
     private readonly IPublishEndpoint _publishEndpoint;
     private readonly IVariableResolver _resolver;
+    private readonly IDistributedLockProvider _lockProvider;
     private readonly ILogger<WorkflowOrchestrator> _logger;
 
     public WorkflowOrchestrator(
@@ -29,7 +31,8 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         IExecutionPointerRepository pointerRepo,
         IPublishEndpoint publishEndpoint,
         IVariableResolver resolver,
-        ILogger<WorkflowOrchestrator> logger)
+        ILogger<WorkflowOrchestrator> logger,
+        IDistributedLockProvider lockProvider)
     {
         _uow = uow;
         _defRepo = defRepo;
@@ -38,6 +41,7 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         _publishEndpoint = publishEndpoint;
         _resolver = resolver;
         _logger = logger;
+        _lockProvider = lockProvider;
     }
 
     public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId)
@@ -108,67 +112,87 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
 
     public async Task<Result> HandleStepCompletionAsync(Guid instanceId, Guid executionPointerId, JsonDocument? eventOutput)
     {
-        // 1. Load State
         try
         {
-            // 1. Load Data
             var instance = await _instanceRepo.GetInstanceByIdAsync(instanceId);
             var pointer = await _pointerRepo.GetPointerByIdAsync(executionPointerId);
 
-            if (instance == null)
-                return Result.Failure(Error.NotFound("Instance.NotFound", $"Instance {instanceId} not found"));
+            if (instance == null) return Result.Failure(Error.NotFound("Instance.NotFound", ""));
 
+            // Bỏ check pointer.Status == Completed ở đây để tránh dính bẫy Idempotency của chung Database
             if (pointer == null)
             {
-                _logger.LogWarning("Pointer {PointerId} not found, possibly already processed.", executionPointerId);
-                return Result.Success(); // Coi như thành công để khỏi retry
+                _logger.LogWarning("Pointer {PointerId} not found in DB.", executionPointerId);
+                return Result.Success();
             }
 
-            // 2. Update Context (Merge Output của Step vào Workflow Data)
-            // Ưu tiên dùng output lưu trong DB (nếu Worker đã update pointer) hoặc từ Event
+            // 1. Merge Context
             var outputToMerge = pointer.Output ?? eventOutput;
-            if (outputToMerge != null)
-            {
-                MergeStepOutputToContext(instance, pointer.StepId, outputToMerge);
-                // Mark pointer as completed in DB logic (nếu Repository chưa làm)
-                // pointer.Status = PointerStatus.Completed; 
-                // pointer.EndTime = DateTime.UtcNow;
-            }
+            if (outputToMerge != null) MergeStepOutputToContext(instance, pointer.StepId, outputToMerge);
 
-            // 3. Navigation (Tìm bước tiếp theo)
+            // 2. Lấy Definition và đánh giá các nhánh tiếp theo (FORK & DEAD PATH)
             var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
-            var nextNodeIds = FindNextNodes(def!.DefinitionJson, pointer.StepId);
+            var nextTransitions = EvaluateTransitions(def!.DefinitionJson, pointer.StepId, instance.ContextData);
 
-            if (nextNodeIds.Count == 0)
+            if (nextTransitions.Count == 0)
             {
-                // End Workflow
-                // instance.Status = WorkflowStatus.Completed;
-                // instance.EndTime = DateTime.UtcNow;
                 _logger.LogInformation("🏁 Workflow {Id} Completed successfully.", instanceId);
             }
             else
             {
-                // Spawn next pointers
-                // 1. Gom các Pointer mới lại
-                var newPointers = new List<ExecutionPointer>();
-                foreach (var nextNodeId in nextNodeIds)
+                var pointersToDispatch = new List<ExecutionPointer>();
+                var joinNodesToCheck = new HashSet<string>();
+                foreach (var transition in nextTransitions)
                 {
-                    var newPointer = new ExecutionPointer(instance.Id, nextNodeId,
-                        parentTokenId: pointer.ParentTokenId,
-                        branchId: pointer.BranchId);
+                    // [FORK] - Cấp BranchId mới nếu rẽ thành nhiều nhánh
 
-                    await _pointerRepo.AddPointerAsync(newPointer);
-                    newPointers.Add(newPointer);
+                    var newBranchId = nextTransitions.Count > 1 ? Guid.NewGuid().ToString() : pointer.BranchId;
+
+                    var newPointer = new ExecutionPointer(instance.Id, transition.TargetNodeId,
+                        parentTokenId: pointer.Id,
+                        branchId: newBranchId);
+
+                    if (!transition.IsConditionMet)
+                    {
+                        // [DEAD PATH] - Đánh dấu Skipped luôn
+                        newPointer.Status = ExecutionPointerStatus.Skipped;
+                        //newPointer. = DateTime.UtcNow;
+                        await _pointerRepo.AddPointerAsync(newPointer);
+                        joinNodesToCheck.Add(transition.TargetNodeId);
+
+                        // Kích hoạt thử Join vì có thể đây là mảnh ghép cuối nó đang chờ
+                        //await TryTriggerJoinBarrierAsync(instance, def, transition.TargetNodeId);
+                    }
+                    else
+                    {
+                        // Nhánh sống
+                        await _pointerRepo.AddPointerAsync(newPointer);
+
+                        var targetType = GetStepType(def.DefinitionJson, transition.TargetNodeId);
+                        if (targetType == "Join")
+                        {
+                            joinNodesToCheck.Add(transition.TargetNodeId);
+                            // [JOIN] - Chặn lại, đưa vào thuật toán Barrier
+                            //await TryTriggerJoinBarrierAsync(instance, def, transition.TargetNodeId);
+                        }
+                        else
+                        {
+                            pointersToDispatch.Add(newPointer);
+                        }
+                    }
                 }
 
-                // 2. BẮT BUỘC LƯU DATABASE TRƯỚC
                 await _uow.SaveChangesAsync();
 
-                // 3. ĐÃ CÓ TRONG DB RỒI -> MỚI GỬI LỆNH CHO WORKER
-                var def2 = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
-                foreach (var newPointer in newPointers)
+                foreach (var joinNodeId in joinNodesToCheck)
                 {
-                    await DispatchPointerAsync(instance, newPointer, def2);
+                    await TryTriggerJoinBarrierAsync(instance, def, joinNodeId);
+                }
+
+                // Dispatch các node bình thường
+                foreach (var p in pointersToDispatch)
+                {
+                    await DispatchPointerAsync(instance, p, def);
                 }
             }
 
@@ -181,7 +205,116 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
         }
     }
 
+    // =========================================================================
+    // ADVANCED FLOW HELPERS (JOIN BARRIER & CONDITIONS)
+    // =========================================================================
+
+    private async Task TryTriggerJoinBarrierAsync(WorkflowInstance instance, WorkflowDefinition def, string joinNodeId)
+    {
+        // 1. Redis Lock - Chống Race Condition
+        var lockKey = $"workflow:{instance.Id}:join:{joinNodeId}";
+        await using var handle = await _lockProvider.TryAcquireLockAsync(lockKey, TimeSpan.FromSeconds(5));
+
+        if (handle == null)
+        {
+            _logger.LogInformation("⏳ Join {JoinId} is locked by another thread. Yielding.", joinNodeId);
+            return;
+        }
+
+        // 2. Tính số lượng mũi tên đầu vào
+        int totalIncomingEdges = GetIncomingEdgesCount(def.DefinitionJson, joinNodeId);
+
+        // 3. Đếm số Pointer đã tập kết (Pending + Completed + Skipped)
+        int arrivedPointersCount = await _pointerRepo.CountArrivedPointersByStepIdAsync(instance.Id, joinNodeId);
+
+        if (arrivedPointersCount >= totalIncomingEdges)
+        {
+            var joinPointers = await _pointerRepo.GetPointersByStepIdAsync(instance.Id, joinNodeId);
+
+            // Đã chạy qua Barrier chưa? (Check xem có pointer nào completed chưa)
+            if (joinPointers.Any(p => p.Status == ExecutionPointerStatus.Completed)) return;
+
+            // Nếu tất cả các nhánh vào đều bị Skipped -> Skip luôn nút Join này
+            if (joinPointers.All(p => p.Status == ExecutionPointerStatus.Skipped))
+            {
+                _logger.LogInformation("💀 All incoming paths to Join {JoinId} skipped.", joinNodeId);
+                return;
+            }
+
+            // Chọn 1 Pointer Pending đại diện làm Token chạy
+            var pointerToDispatch = joinPointers.FirstOrDefault(p => p.Status == ExecutionPointerStatus.Pending);
+
+            // Đánh dấu các Pointer còn lại thành Completed để dọn rác
+            foreach (var p in joinPointers.Where(x => x.Id != pointerToDispatch?.Id && x.Status == ExecutionPointerStatus.Pending))
+            {
+                p.Status = ExecutionPointerStatus.Completed;
+            }
+
+            if (pointerToDispatch != null)
+            {
+                _logger.LogInformation("🔗 Join Barrier broken for {JoinId}. Dispatching!", joinNodeId);
+                await _uow.SaveChangesAsync();
+                await DispatchPointerAsync(instance, pointerToDispatch, def);
+            }
+        }
+    }
+
+    private List<(string TargetNodeId, bool IsConditionMet)> EvaluateTransitions(JsonDocument defJson, string currentId, JsonDocument context)
+    {
+        var transitions = new List<(string TargetNodeId, bool IsConditionMet)>();
+        if (defJson.RootElement.TryGetProperty("Transitions", out var transArray))
+        {
+            foreach (var t in transArray.EnumerateArray())
+            {
+                if (t.GetProperty("Source").GetString() == currentId)
+                {
+                    string target = t.GetProperty("Target").GetString()!;
+                    bool conditionMet = true;
+
+                    if (t.TryGetProperty("Condition", out var conditionElem))
+                    {
+                        string conditionStr = conditionElem.GetString() ?? "";
+                        conditionMet = EvaluateCondition(conditionStr, context);
+                    }
+
+                    transitions.Add((target, conditionMet));
+                }
+            }
+        }
+        return transitions;
+    }
+
+    private bool EvaluateCondition(string conditionExpression, JsonDocument context)
+    {
+        // TODO: Logic phân tích biểu thức (Jint / NCalc) sẽ triển khai sau.
+        // Tạm thời hardcode true để workflow chạy được.
+        if (conditionExpression == "false") return false;
+        return true;
+    }
+
+    private int GetIncomingEdgesCount(JsonDocument defJson, string stepId)
+    {
+        int count = 0;
+        if (defJson.RootElement.TryGetProperty("Transitions", out var transitions))
+        {
+            foreach (var t in transitions.EnumerateArray())
+            {
+                if (t.GetProperty("Target").GetString() == stepId) count++;
+            }
+        }
+        return count;
+    }
+
     // --- Private Helpers ---
+    private string GetStepType(JsonDocument defJson, string stepId)
+    {
+        foreach (var step in defJson.RootElement.GetProperty("Steps").EnumerateArray())
+        {
+            if (step.GetProperty("Id").GetString() == stepId)
+                return step.GetProperty("Type").GetString() ?? "";
+        }
+        return "";
+    }
 
     private async Task DispatchPointerAsync(WorkflowInstance instance, ExecutionPointer pointer, WorkflowDefinition def)
     {

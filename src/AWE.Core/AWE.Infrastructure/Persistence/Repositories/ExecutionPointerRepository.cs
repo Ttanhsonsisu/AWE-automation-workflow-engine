@@ -109,4 +109,17 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
                 .SetProperty(p => p.RetryCount, p => p.RetryCount + 1),
                 ct);
     }
+
+    public async Task<int> CountArrivedPointersByStepIdAsync(Guid instanceId, string stepId)
+    {
+        return await _context.ExecutionPointers
+            .CountAsync(p => p.InstanceId == instanceId && p.StepId == stepId);
+    }
+
+    public async Task<List<ExecutionPointer>> GetPointersByStepIdAsync(Guid instanceId, string stepId)
+    {
+        return await _context.ExecutionPointers
+            .Where(p => p.InstanceId == instanceId && p.StepId == stepId)
+            .ToListAsync();
+    }
 }

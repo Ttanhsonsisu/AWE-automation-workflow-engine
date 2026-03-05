@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using AWE.Domain.Entities;
+﻿using AWE.Domain.Entities;
 
 namespace AWE.Application.Abstractions.Persistence;
 
@@ -36,4 +33,10 @@ public interface IExecutionPointerRepository
 
     // Dành cho Engine (Recovery): Reset Pointer về Pending
     Task<int> ResetRawPointersAsync(List<Guid> pointerIds, CancellationToken ct = default);
+
+    // Đếm số lượng pointer đã đến nút Join (bao gồm Pending, Completed, Skipped)
+    Task<int> CountArrivedPointersByStepIdAsync(Guid instanceId, string stepId);
+
+    // Lấy danh sách các pointer đang tụ tập ở nút Join
+    Task<List<ExecutionPointer>> GetPointersByStepIdAsync(Guid instanceId, string stepId);
 }

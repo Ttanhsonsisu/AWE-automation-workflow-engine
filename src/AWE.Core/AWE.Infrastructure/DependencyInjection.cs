@@ -10,10 +10,13 @@ using AWE.Infrastructure.Services;
 using AWE.Infrastructure.Validation;
 using AWE.Shared.Consts;
 using MassTransit;
+using Medallion.Threading;
+using Medallion.Threading.Redis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Minio;
+using StackExchange.Redis;
 
 namespace AWE.Infrastructure;
 
@@ -25,6 +28,14 @@ public static class DependencyInjection
 
     public static IServiceCollection AddAwePersistence(this IServiceCollection services, IConfiguration configuration)
     {
+        // add redis
+
+        services.AddSingleton<IConnectionMultiplexer>(sp =>
+            ConnectionMultiplexer.Connect(configuration.GetConnectionString("Redis") ?? "localhost:6379"));
+
+        services.AddSingleton<IDistributedLockProvider>(sp =>
+            new RedisDistributedSynchronizationProvider(sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase()));
+
         var connectionString = configuration.GetConnectionString("postgres")
             ?? throw new InvalidOperationException("Connection string not found");
 
