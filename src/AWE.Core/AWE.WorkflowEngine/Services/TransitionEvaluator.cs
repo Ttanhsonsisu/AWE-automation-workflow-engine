@@ -92,6 +92,42 @@ public class TransitionEvaluator : ITransitionEvaluator
         return count;
     }
 
+    public List<string> FindStartNodeIds(JsonDocument defJson)
+    {
+        var root = defJson.RootElement;
+        if (!root.TryGetProperty("Steps", out var stepsElement))
+            throw new InvalidOperationException("Workflow definition is missing 'Steps' array.");
+
+        var steps = stepsElement.EnumerateArray();
+        var targetNodes = new HashSet<string>();
+
+        if (root.TryGetProperty("Transitions", out var transitions))
+        {
+            foreach (var t in transitions.EnumerateArray())
+            {
+                if (t.TryGetProperty("Target", out var target))
+                    targetNodes.Add(target.GetString()!);
+            }
+        }
+
+        var startNodes = new List<string>();
+
+        // Gom TẤT CẢ các node không có đầu vào
+        foreach (var step in steps)
+        {
+            var id = step.GetProperty("Id").GetString()!;
+            if (!targetNodes.Contains(id))
+            {
+                startNodes.Add(id);
+            }
+        }
+
+        if (startNodes.Count == 0)
+            throw new InvalidOperationException("Cannot find any valid start nodes.");
+
+        return startNodes;
+    }
+
     private bool EvaluateCondition(string conditionExpression, JsonDocument context)
     {
         if (string.IsNullOrWhiteSpace(conditionExpression)) return true;

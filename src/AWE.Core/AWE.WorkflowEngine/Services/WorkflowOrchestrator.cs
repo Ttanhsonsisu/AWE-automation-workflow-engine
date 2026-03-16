@@ -15,9 +15,6 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     IWorkflowDefinitionRepository defRepo,
     IWorkflowInstanceRepository instanceRepo,
     IExecutionPointerRepository pointerRepo,
-    IPublishEndpoint publishEndpoint,
-    IVariableResolver resolver,
-    IDistributedLockProvider lockProvider,
     IWorkflowContextManager contextManager,
     ITransitionEvaluator evaluator,
     IJoinBarrierService joinService,
@@ -28,9 +25,6 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     private readonly IWorkflowDefinitionRepository _defRepo = defRepo;
     private readonly IWorkflowInstanceRepository _instanceRepo = instanceRepo;
     private readonly IExecutionPointerRepository _pointerRepo = pointerRepo;
-    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
-    private readonly IVariableResolver _resolver = resolver;
-    private readonly IDistributedLockProvider _lockProvider = lockProvider;
 
     private readonly IWorkflowContextManager _contextManager = contextManager;
     private readonly ITransitionEvaluator _evaluator = evaluator;
@@ -53,18 +47,32 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // instance.MarkAsRunning(); // Bạn nhớ thêm hàm này vào WorkflowInstance nhé
         await _instanceRepo.AddInstanceAsync(instance);
 
-        // 3. Khởi tạo Start Pointer
-        var startNodeId = _evaluator.FindStartNodeId(def.DefinitionJson);
-        var pointer = new ExecutionPointer(instance.Id, startNodeId);
-        await _pointerRepo.AddPointerAsync(pointer);
+        // support multiple start nodes, nên phải lưu DB trước để có InstanceId, phục vụ cho việc tạo ExecutionPointer và Dispatch sau này
+        // 3. Khởi tạo TẤT CẢ các Start Pointers
+        var startNodeIds = _evaluator.FindStartNodeIds(def.DefinitionJson);
 
-        // 4. Dispatch và Lưu DB (Atomic)
-        await _dispatcher.DispatchAsync(instance, pointer, def.DefinitionJson);
+        foreach (var startNodeId in startNodeIds)
+        {
+            // Mỗi start node sẽ chạy song song như một nhánh độc lập (branchId riêng)
+            var pointer = new ExecutionPointer(
+                instanceId: instance.Id,
+                stepId: startNodeId,
+                predecessorId: null,
+                scope: null,
+                parentTokenId: null,
+                branchId: Guid.NewGuid().ToString() // Khởi tạo nhánh song song luôn
+            );
 
+            await _pointerRepo.AddPointerAsync(pointer);
+
+            // Dispatch vào Outbox RAM
+            await _dispatcher.DispatchAsync(instance, pointer, def.DefinitionJson);
+        }
+
+        // 4. Lưu DB (Atomic) chốt hạ tất cả Pointers và Messages cùng lúc
         await _uow.SaveChangesAsync();
 
-
-        _logger.LogInformation("🚀 Started Job '{Name}' (ID: {Id})", jobName, instance.Id);
+        _logger.LogInformation("🚀 Started Job '{Name}' (ID: {Id}) with {Count} Start Nodes.", jobName, instance.Id, startNodeIds.Count);
         return Result.Success(instance.Id);
     }
 
