@@ -17,10 +17,7 @@
   <Folder Name="/src/">
     <Project Path="src/AWE.AppHost/AWE.AppHost.csproj" />
   </Folder>
-  <Folder Name="/src/AWE.Plugins/">
-    <Project Path="AWE.Plugins.Test/AWE.Plugins.Test.csproj" Id="0f9e1f43-f2e3-4077-a503-8e1721ac021b" />
-    <Project Path="src/AWE.Plugin.Abstractions/AWE.Plugin.Abstractions.csproj" />
-  </Folder>
+  <Folder Name="/src/AWE.Plugins/" />
   <Folder Name="/src/AWE.Presentation/">
     <Project Path="src/AWE.ApiGateway/AWE.ApiGateway.csproj" />
   </Folder>
