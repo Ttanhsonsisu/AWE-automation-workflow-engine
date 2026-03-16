@@ -28,5 +28,10 @@ public enum ExecutionPointerStatus
     /// <summary>
     /// Token was skipped (e.g., conditional branch not taken)
     /// </summary>
-    Skipped
+    Skipped,
+
+    /// <summary>
+    /// status wait event
+    /// </summary>
+    WaitingForEvent
 }

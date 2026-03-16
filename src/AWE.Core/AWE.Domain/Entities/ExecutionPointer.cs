@@ -4,115 +4,72 @@ using System.Text.Json;
 
 namespace AWE.Domain.Entities;
 
-/// <summary>
-/// Represents a token moving through the workflow DAG
-/// This is the GROUND TRUTH for runtime state
-/// HOT TABLE - heavily updated
-/// </summary>
 public class ExecutionPointer : Entity
 {
-    /// <summary>
-    /// Reference to parent workflow instance
-    /// </summary>
     public Guid InstanceId { get; private set; }
-
-    /// <summary>
-    /// ID of the current node/step in the DAG
-    /// </summary>
     public string StepId { get; private set; } = string.Empty;
 
-    /// <summary>
-    /// Current execution status
-    /// </summary>
-    public ExecutionPointerStatus Status { get; private set; }
+    // --- Token Identity (Cho Atomic Join sau này) ---
+    public Guid? ParentTokenId { get; private set; }
+    public string BranchId { get; private set; }
 
-    /// <summary>
-    /// Whether this pointer is still active (not archived)
-    /// </summary>
+    public ExecutionPointerStatus Status { get; set; }
     public bool Active { get; private set; }
 
-    /// <summary>
-    /// LEASING MECHANISM: Timestamp when the lease expires
-    /// Used for zombie detection: if NOW > LeasedUntil and Status=Running -> Zombie
-    /// </summary>
+    // --- Leasing (Zombie Detection) ---
     public DateTime? LeasedUntil { get; private set; }
-
-    /// <summary>
-    /// LEASING MECHANISM: Worker ID that currently holds the lease
-    /// Format: WorkerId-ProcessId or IP:Port
-    /// </summary>
     public string? LeasedBy { get; private set; }
 
-    /// <summary>
-    /// Number of retry attempts made
-    /// </summary>
     public int RetryCount { get; private set; }
-
-    /// <summary>
-    /// Reference to the parent pointer (for backtracking)
-    /// </summary>
     public Guid? PredecessorId { get; private set; }
-
-    /// <summary>
-    /// Scope information for parallel branches
-    /// Stored as JSON array of BranchIds: ["branch1", "branch2"]
-    /// </summary>
     public JsonDocument Scope { get; private set; }
-
-    /// <summary>
-    /// When this pointer was created
-    /// Used for partitioning and ordering
-    /// </summary>
     public DateTime CreatedAt { get; private set; }
+    public DateTime? EndTime { get; private set; }
+    // Cờ đánh dấu Engine đã xử lý định tuyến (sinh nhánh con) xong chưa
+    public bool Routed { get; private set; } = false;
 
-    /// <summary>
-    /// Step-level context data (inputs/outputs)
-    /// </summary>
-    public JsonDocument? StepContext { get; private set; }
+    // [CHANGE] Đổi tên StepContext -> Output cho đúng ngữ nghĩa "Kết quả trả về"
+    public JsonDocument? Output { get; private set; }
 
-    /// <summary>
-    /// Navigation properties
-    /// </summary>
     public virtual WorkflowInstance Instance { get; private set; } = null!;
-
     public virtual ICollection<ExecutionLog> ExecutionLogs { get; private set; } = new List<ExecutionLog>();
 
-    // Private constructor for EF Core
     private ExecutionPointer() { }
 
     public ExecutionPointer(
         Guid instanceId,
         string stepId,
         Guid? predecessorId = null,
-        JsonDocument? scope = null)
+        JsonDocument? scope = null,
+        Guid? parentTokenId = null,
+        string branchId = "ROOT")
     {
         if (string.IsNullOrWhiteSpace(stepId))
             throw new ArgumentException("Step ID cannot be empty", nameof(stepId));
 
         InstanceId = instanceId;
         StepId = stepId;
-        Status = ExecutionPointerStatus.Pending;
+        ParentTokenId = parentTokenId;
+        BranchId = branchId;
+        PredecessorId = predecessorId;
+
+        Status = ExecutionPointerStatus.Pending; // Mặc định là Pending đợi Worker nhận
         Active = true;
         RetryCount = 0;
-        PredecessorId = predecessorId;
         Scope = scope ?? JsonDocument.Parse("[]");
         CreatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>
-    /// Acquire a lease for this pointer
-    /// Returns true if lease acquired successfully
-    /// </summary>
+    // --- State Machine & Leasing Logic ---
+
     public bool TryAcquireLease(string workerId, TimeSpan leaseDuration)
     {
         if (string.IsNullOrWhiteSpace(workerId))
-            throw new ArgumentException("Worker ID cannot be empty", nameof(workerId));
+            throw new ArgumentException("Worker ID required");
 
-        // Can only acquire lease if:
-        // 1. Status is Pending, OR
-        // 2. Status is Running but lease has expired (zombie recovery)
         var now = DateTime.UtcNow;
 
+        // Case 1: Nhận việc mới
         if (Status == ExecutionPointerStatus.Pending)
         {
             Status = ExecutionPointerStatus.Running;
@@ -121,50 +78,41 @@ public class ExecutionPointer : Entity
             return true;
         }
 
+        // Case 2: Cướp lại việc của Zombie (Worker cũ bị chết)
         if (Status == ExecutionPointerStatus.Running && LeasedUntil.HasValue && LeasedUntil.Value < now)
         {
-            // Zombie recovery - lease expired, can be re-acquired
             LeasedUntil = now.Add(leaseDuration);
             LeasedBy = workerId;
-            RetryCount++;
+            RetryCount++; // Tính là 1 lần retry
             return true;
         }
 
-        return false; // Already leased or in terminal state
+        return false;
     }
 
-    /// <summary>
-    /// Renew the current lease (heartbeat mechanism)
-    /// </summary>
     public void RenewLease(string workerId, TimeSpan leaseDuration)
     {
-        if (LeasedBy != workerId)
-            throw new InvalidOperationException($"Lease is held by {LeasedBy}, not {workerId}");
-
-        if (Status != ExecutionPointerStatus.Running)
-            throw new InvalidOperationException($"Cannot renew lease in status: {Status}");
-
+        ValidateLeaseOwnership(workerId);
         LeasedUntil = DateTime.UtcNow.Add(leaseDuration);
     }
 
-    /// <summary>
-    /// Release the lease and mark as completed
-    /// </summary>
-    public void Complete(string workerId, JsonDocument? outputContext = null)
+    public void Complete(string workerId, JsonDocument? output)
     {
         ValidateLeaseOwnership(workerId);
 
         Status = ExecutionPointerStatus.Completed;
-        Active = false;
+        Active = false; // Đánh dấu pointer này đã xong nhiệm vụ
+
+        // Clear Lease để không ai pickup nhầm nữa
         LeasedUntil = null;
         LeasedBy = null;
-        StepContext = outputContext;
+
+        // [CHANGE] Lưu output
+        Output = output;
+        EndTime = DateTime.UtcNow;
     }
 
-    /// <summary>
-    /// Mark pointer as failed
-    /// </summary>
-    public void MarkAsFailed(string workerId, JsonDocument? errorContext = null)
+    public void MarkAsFailed(string workerId, JsonDocument? errorContext)
     {
         ValidateLeaseOwnership(workerId);
 
@@ -172,27 +120,25 @@ public class ExecutionPointer : Entity
         Active = false;
         LeasedUntil = null;
         LeasedBy = null;
-        StepContext = errorContext;
+
+        // Có thể lưu lỗi vào Output hoặc một cột ErrorData riêng (Ở đây tạm lưu vào Output)
+        Output = errorContext;
+        EndTime = DateTime.UtcNow;
     }
 
-    /// <summary>
-    /// Skip this pointer (e.g., conditional branch not taken)
-    /// </summary>
     public void Skip()
     {
         Status = ExecutionPointerStatus.Skipped;
         Active = false;
         LeasedUntil = null;
         LeasedBy = null;
+        EndTime = DateTime.UtcNow;
     }
 
-    /// <summary>
-    /// Reset pointer to Pending state (for retry or zombie recovery)
-    /// </summary>
     public void ResetToPending()
     {
         if (Status == ExecutionPointerStatus.Completed || Status == ExecutionPointerStatus.Skipped)
-            throw new InvalidOperationException($"Cannot reset pointer in terminal state: {Status}");
+            throw new InvalidOperationException($"Cannot reset terminal state: {Status}");
 
         Status = ExecutionPointerStatus.Pending;
         LeasedUntil = null;
@@ -200,9 +146,6 @@ public class ExecutionPointer : Entity
         RetryCount++;
     }
 
-    /// <summary>
-    /// Check if this pointer is a zombie (lease expired while running)
-    /// </summary>
     public bool IsZombie()
     {
         return Status == ExecutionPointerStatus.Running
@@ -212,10 +155,32 @@ public class ExecutionPointer : Entity
 
     private void ValidateLeaseOwnership(string workerId)
     {
+        // Logic kiểm tra rất chặt chẽ, tốt!
         if (LeasedBy != workerId)
-            throw new InvalidOperationException($"Lease is held by {LeasedBy}, not {workerId}");
+            throw new InvalidOperationException($"Lease conflict: Held by {LeasedBy}, request by {workerId}");
 
         if (Status != ExecutionPointerStatus.Running)
-            throw new InvalidOperationException($"Pointer is not in Running state: {Status}");
+            throw new InvalidOperationException($"Invalid status transition from {Status}");
+    }
+
+    /// <summary>
+    /// Hàm dùng riêng cho việc đánh thức Node "Wait" từ API bên ngoài
+    /// </summary>
+    /// <param name="output"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    public void CompleteFromWait(JsonDocument? output)
+    {
+        if (Status != ExecutionPointerStatus.WaitingForEvent)
+            throw new InvalidOperationException($"Cannot resume step from status: {Status}");
+
+        Status = ExecutionPointerStatus.Completed;
+        Active = false; // Đã xong nhiệm vụ
+        Output = output; // Lưu data từ Webhook gửi vào
+        EndTime = DateTime.UtcNow;
+    }
+
+    public void MarkAsRouted()
+    {
+        Routed = true;
     }
 }

@@ -34,10 +34,11 @@ public record SubmitWorkflowCommand(
 /// This command must be processed idempotently.
 /// </remarks>
 public record ExecutePluginCommand(
-    Guid InstanceId,          // Workflow instance identifier
-    Guid StepId,              // Step instance identifier
-    string StepType,          // Plugin routing key (e.g. Video, Email)
-    string Payload            // Plugin-specific configuration or data
+    Guid InstanceId,             // ID của Workflow Instance
+    Guid ExecutionPointerId,     // [QUAN TRỌNG] Khóa chính dòng Pointer trong DB
+    string NodeId,               // Tên bước trong JSON (VD: "Activity_1")
+    string StepType,             // Loại Plugin (VD: "Http", "Email")
+    string Payload               // Dữ liệu JSON đã được Engine giải quyết biến
 );
 
 #endregion
@@ -55,7 +56,7 @@ public record ExecutePluginCommand(
 public record StepCompletedEvent(
     Guid WorkflowInstanceId,                          // Workflow instance identifier
     Guid ExecutionPointerId,
-    Guid StepId,                              // Step instance identifier
+    string StepId,                              // Step instance identifier
     JsonDocument Output,     // Step execution output
     DateTime CompletedAt
 );
@@ -70,7 +71,7 @@ public record StepCompletedEvent(
 /// </remarks>
 public record StepFailedEvent(
     Guid InstanceId,          // Workflow instance identifier
-    Guid StepId,              // Step instance identifier
+    string StepId,              // Step instance identifier
     string ErrorMessage       // Failure description
 );
 

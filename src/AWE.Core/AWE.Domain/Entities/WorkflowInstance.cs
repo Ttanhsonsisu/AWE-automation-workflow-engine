@@ -24,7 +24,7 @@ public class WorkflowInstance : AuditableEntity
     /// <summary>
     /// Current lifecycle status
     /// </summary>
-    public WorkflowInstanceStatus Status { get; private set; }
+    public WorkflowInstanceStatus Status { get; set; }
 
     /// <summary>
     /// Global runtime context (variables)

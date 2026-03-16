@@ -8,7 +8,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AWE.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class UpdateFieldExecutionPoint3 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -181,12 +181,14 @@ namespace AWE.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ExecutionPointer",
+                name: "ExecutionPointers",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
                     instance_id = table.Column<Guid>(type: "uuid", nullable: false),
                     step_id = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    parent_token_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    branch_id = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false, defaultValue: "ROOT"),
                     status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     active = table.Column<bool>(type: "boolean", nullable: false),
                     leased_until = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -195,13 +197,13 @@ namespace AWE.Infrastructure.Migrations
                     predecessor_id = table.Column<Guid>(type: "uuid", nullable: true),
                     scope = table.Column<JsonDocument>(type: "jsonb", nullable: false),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    step_context = table.Column<JsonDocument>(type: "jsonb", nullable: true)
+                    output = table.Column<JsonDocument>(type: "jsonb", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_execution_pointer", x => x.id);
+                    table.PrimaryKey("pk_execution_pointers", x => x.id);
                     table.ForeignKey(
-                        name: "fk_execution_pointer_workflow_instances_instance_id",
+                        name: "fk_execution_pointers_workflow_instances_instance_id",
                         column: x => x.instance_id,
                         principalTable: "WorkflowInstance",
                         principalColumn: "id",
@@ -250,9 +252,9 @@ namespace AWE.Infrastructure.Migrations
                 {
                     table.PrimaryKey("pk_execution_log", x => x.id);
                     table.ForeignKey(
-                        name: "fk_execution_log_execution_pointer_execution_pointer_id",
+                        name: "fk_execution_log_execution_pointers_execution_pointer_id",
                         column: x => x.execution_pointer_id,
-                        principalTable: "ExecutionPointer",
+                        principalTable: "ExecutionPointers",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
@@ -285,30 +287,24 @@ namespace AWE.Infrastructure.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "ix_execution_pointers_created_at",
-                table: "ExecutionPointer",
+                table: "ExecutionPointers",
                 column: "created_at");
 
             migrationBuilder.CreateIndex(
                 name: "ix_execution_pointers_instance_active",
-                table: "ExecutionPointer",
+                table: "ExecutionPointers",
                 columns: new[] { "instance_id", "active" });
 
             migrationBuilder.CreateIndex(
-                name: "ix_execution_pointers_instance_step_status",
-                table: "ExecutionPointer",
-                columns: new[] { "instance_id", "step_id", "status" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_execution_pointers_polling",
-                table: "ExecutionPointer",
-                columns: new[] { "status", "leased_until", "created_at" },
-                filter: "active = true");
+                name: "ix_execution_pointers_join_barrier",
+                table: "ExecutionPointers",
+                columns: new[] { "instance_id", "parent_token_id", "step_id" });
 
             migrationBuilder.CreateIndex(
                 name: "ix_execution_pointers_zombie",
-                table: "ExecutionPointer",
+                table: "ExecutionPointers",
                 columns: new[] { "status", "leased_until" },
-                filter: "status = 'Running'");
+                filter: "\"status\" = 'Running'");
 
             migrationBuilder.CreateIndex(
                 name: "ix_inbox_state_delivered",
@@ -423,7 +419,7 @@ namespace AWE.Infrastructure.Migrations
                 name: "PluginVersion");
 
             migrationBuilder.DropTable(
-                name: "ExecutionPointer");
+                name: "ExecutionPointers");
 
             migrationBuilder.DropTable(
                 name: "InboxState");

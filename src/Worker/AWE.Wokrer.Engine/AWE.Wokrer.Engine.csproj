@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-AWE.Wokrer.Engine-253fe3e6-42ce-42bd-8ea1-d7ccf7249eb9</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AWE.Core\AWE.WorkflowEngine\AWE.WorkflowEngine.csproj" />
+    <ProjectReference Include="..\..\AWE.ServiceDefaults\AWE.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

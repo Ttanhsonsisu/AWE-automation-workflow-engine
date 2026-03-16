@@ -1,6 +1,7 @@
 ﻿using AWE.Infrastructure;
 using AWE.ServiceDefaults.Extensions;
-using AWE.WorkflowEngine.Consumers; 
+using AWE.Worker;
+using AWE.WorkflowEngine;
 using MassTransit;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -11,6 +12,8 @@ builder.AddServiceDefaults();
 // Setup Database 
 builder.Services.AddAwePersistence(builder.Configuration);
 
+builder.Services.AddWorkflowEngineService();
+
 // Setup Messaging & Workers
 builder.Services.AddAweMessaging(builder.Configuration, x =>
 {
@@ -20,7 +23,7 @@ builder.Services.AddAweMessaging(builder.Configuration, x =>
     /// - All consumers
     /// - Their corresponding ConsumerDefinition (if exists)
     /// </remarks>
-    x.AddConsumersFromNamespaceContaining<JobExecutionConsumer>();
+    x.AddConsumersFromNamespaceContaining<PluginConsumer>();
 
     /// <summary>
     /// Use kebab-case for endpoint names.

@@ -3,6 +3,7 @@ using AWE.Infrastructure.ConfigOptions;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
+using Minio.Exceptions;
 
 namespace AWE.Infrastructure.Services;
 
@@ -35,7 +36,7 @@ public class MinioStorageService(IMinioClient _minioClient, IOptions<MinioOption
     {
         await EnsureBucketExistsAsync(bucket, cancellationToken);
 
-        content.Position = 0;
+        if (content.CanSeek) content.Position = 0;
 
         await _minioClient.PutObjectAsync(
             new PutObjectArgs()
@@ -58,9 +59,9 @@ public class MinioStorageService(IMinioClient _minioClient, IOptions<MinioOption
             new GetObjectArgs()
                 .WithBucket(bucket)
                 .WithObject(objectKey)
-                .WithCallbackStream(stream =>
+                .WithCallbackStream( async stream =>
                 {
-                    stream.CopyTo(memoryStream);
+                    await stream.CopyToAsync(memoryStream);
                 }),
             cancellationToken);
 
@@ -83,7 +84,11 @@ public class MinioStorageService(IMinioClient _minioClient, IOptions<MinioOption
 
             return true;
         }
-        catch
+        catch (ObjectNotFoundException)
+        {
+            return false; // 404
+        }
+        catch (Exception ex)
         {
             return false;
         }

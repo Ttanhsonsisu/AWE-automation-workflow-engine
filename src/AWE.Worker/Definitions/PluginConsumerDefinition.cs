@@ -1,7 +1,9 @@
 ﻿using AWE.Infrastructure.Extensions;
+using AWE.Infrastructure.Persistence;
+using AWE.Shared.Consts;
 using MassTransit;
 
-namespace AWE.WorkflowEngine.Consumers.Definitions;
+namespace AWE.Worker.Definitions;
 
 /// <summary>
 /// Consumer definition for plugin execution.
@@ -13,6 +15,11 @@ namespace AWE.WorkflowEngine.Consumers.Definitions;
 /// </remarks>
 public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
 {
+    public PluginConsumerDefinition()
+    {
+        // Đặt tên Queue cứng: "q.workflow.plugin"
+        EndpointName = MessagingConstants.QueuePlugin;
+    }
     protected override void ConfigureConsumer(IReceiveEndpointConfigurator endpointConfigurator,
         IConsumerConfigurator<PluginConsumer> consumerConfigurator,
         IRegistrationContext context)
@@ -48,8 +55,8 @@ public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
 
         // In-memory outbox ensures outgoing messages are published
         // only once during consumer retries.
-        endpointConfigurator.UseInMemoryOutbox(context);
-
+        //endpointConfigurator.UseInMemoryOutbox(context);
+        endpointConfigurator.UseEntityFrameworkOutbox<ApplicationDbContext>(context);
         // =====================================================
         // TOPOLOGY – RabbitMQ classic queue binding
         // =====================================================
@@ -58,7 +65,8 @@ public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
             // Use classic queue for lower latency and simpler semantics.
             // This consumer handles all workflow step execution events
             // routed with the "workflow.step.#" wildcard.
-            rabbit.ConfigureClassicQueue("awe.events", "workflow.step.#");
+            rabbit.ConfigureClassicQueue(MessagingConstants.ExchangeWorkflow,
+                MessagingConstants.PatternPlugin);
         }
     }
 }
