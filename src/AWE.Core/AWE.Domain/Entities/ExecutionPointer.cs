@@ -24,6 +24,9 @@ public class ExecutionPointer : Entity
     public Guid? PredecessorId { get; private set; }
     public JsonDocument Scope { get; private set; }
     public DateTime CreatedAt { get; private set; }
+    public DateTime? EndTime { get; private set; }
+    // Cờ đánh dấu Engine đã xử lý định tuyến (sinh nhánh con) xong chưa
+    public bool Routed { get; private set; } = false;
 
     // [CHANGE] Đổi tên StepContext -> Output cho đúng ngữ nghĩa "Kết quả trả về"
     public JsonDocument? Output { get; private set; }
@@ -106,6 +109,7 @@ public class ExecutionPointer : Entity
 
         // [CHANGE] Lưu output
         Output = output;
+        EndTime = DateTime.UtcNow;
     }
 
     public void MarkAsFailed(string workerId, JsonDocument? errorContext)
@@ -119,6 +123,7 @@ public class ExecutionPointer : Entity
 
         // Có thể lưu lỗi vào Output hoặc một cột ErrorData riêng (Ở đây tạm lưu vào Output)
         Output = errorContext;
+        EndTime = DateTime.UtcNow;
     }
 
     public void Skip()
@@ -127,6 +132,7 @@ public class ExecutionPointer : Entity
         Active = false;
         LeasedUntil = null;
         LeasedBy = null;
+        EndTime = DateTime.UtcNow;
     }
 
     public void ResetToPending()
@@ -170,5 +176,11 @@ public class ExecutionPointer : Entity
         Status = ExecutionPointerStatus.Completed;
         Active = false; // Đã xong nhiệm vụ
         Output = output; // Lưu data từ Webhook gửi vào
+        EndTime = DateTime.UtcNow;
+    }
+
+    public void MarkAsRouted()
+    {
+        Routed = true;
     }
 }

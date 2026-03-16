@@ -11,6 +11,10 @@ public static class DependencyInjection
     {
         // add service
         services.AddScoped<IVariableResolver, VariableResolver>();
+        services.AddScoped<ITransitionEvaluator, TransitionEvaluator>();
+        services.AddScoped<IPointerDispatcher, PointerDispatcher>();
+        services.AddScoped<IWorkflowContextManager, WorkflowContextManager>();
+        services.AddScoped<IJoinBarrierService, JoinBarrierService>();
         services.AddScoped<IWorkflowOrchestrator, WorkflowOrchestrator>();
 
         // add backgroundservice
