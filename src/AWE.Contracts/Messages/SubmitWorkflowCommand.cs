@@ -71,6 +71,7 @@ public record StepCompletedEvent(
 /// </remarks>
 public record StepFailedEvent(
     Guid InstanceId,          // Workflow instance identifier
+    Guid ExecutionPointerId,
     string StepId,              // Step instance identifier
     string ErrorMessage       // Failure description
 );

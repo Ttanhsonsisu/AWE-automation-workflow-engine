@@ -38,7 +38,7 @@ public class WorkflowEventConsumer :
         var msg = context.Message;
 
         var result = await _orchestrator.HandleStepFailureAsync(
-            msg.InstanceId, Guid.Empty, msg.ErrorMessage
+            msg.InstanceId, msg.ExecutionPointerId, msg.ErrorMessage
         );
 
         await context.ProcessResultAsync(result, _logger, $"StepFail:{msg.StepId}");
