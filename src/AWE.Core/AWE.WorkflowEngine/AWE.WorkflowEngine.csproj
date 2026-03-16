@@ -15,7 +15,6 @@
     <ProjectReference Include="..\..\AWE.Contracts\AWE.Contracts.csproj" />
     <ProjectReference Include="..\..\AWE.Shared\AWE.Shared.csproj" />
     <ProjectReference Include="..\AWE.Domain\AWE.Domain.csproj" />
-    <ProjectReference Include="..\..\AWE.Plugin.Abstractions\AWE.Plugin.Abstractions.csproj" />
     <ProjectReference Include="..\AWE.Infrastructure\AWE.Infrastructure.csproj" />
   </ItemGroup>
 
