@@ -115,7 +115,7 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             _logger.LogError(ex, "🔥 [{Worker}] Error on Step {Node}", _workerId, cmd.NodeId);
             await HandleFailureAsync(pointer, cmd, ex.Message, context);
             await cts.CancelAsync();
-            throw;
+            //throw;
         }
         finally
         {
@@ -155,12 +155,13 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 { "Waited", "500ms" }
             },
             "CrashTest" => await RunCrashTestAsync(ct),
-
+            "SagaTest" => throw new Exception("BÙM! Giả lập lỗi hệ thống để test Rollback!"),
             "Join" => new Dictionary<string, object>
             {
                 { "JoinStatus", "Barrier Passed successfully" }
             },
-           
+            
+
 
             // Nếu gặp loại chưa định nghĩa -> Lỗi
             _ => throw new NotImplementedException($"Internal Plugin '{stepType}' not implemented yet.")
@@ -175,6 +176,7 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
 
         await context.Publish(new StepFailedEvent(
             InstanceId: cmd.InstanceId,
+            ExecutionPointerId: pointer.Id,
             StepId: cmd.NodeId,
             ErrorMessage: errorMsg
         ));
@@ -224,7 +226,7 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
         // Giả lập tác vụ chạy rất lâu (2 phút)
         // Trong thời gian này, Heartbeat sẽ chạy mỗi 10s.
         // Nếu bạn Kill Process lúc này, Heartbeat sẽ tắt -> Lease hết hạn.
-        for (int i = 0; i < 24; i++) // 24 * 5s = 120s
+        for (int i = 0; i < 3; i++) // 3 * 5s = 15s
         {
             if (ct.IsCancellationRequested) break;
 

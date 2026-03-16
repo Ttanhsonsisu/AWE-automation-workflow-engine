@@ -1,6 +1,7 @@
 ﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace AWE.Infrastructure.Persistence.Repositories;
@@ -120,6 +121,14 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
     {
         return await _context.ExecutionPointers
             .Where(p => p.InstanceId == instanceId && p.StepId == stepId)
+            .ToListAsync();
+    }
+
+    public async Task<List<ExecutionPointer>> GetCompletedPointersByInstanceIdAsync(Guid instanceId)
+    {
+        return await _context.ExecutionPointers
+            .Where(p => p.InstanceId == instanceId && p.Status == ExecutionPointerStatus.Completed)
+            .OrderByDescending(p => p.EndTime) // Sắp xếp LIFO: Chạy sau cùng thì Rollback đầu tiên
             .ToListAsync();
     }
 }

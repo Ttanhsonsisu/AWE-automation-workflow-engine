@@ -1,12 +1,11 @@
 ﻿using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
+using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using AWE.WorkflowEngine.Interfaces;
-using Jint;
-using MassTransit;
-using Medallion.Threading;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -19,6 +18,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     ITransitionEvaluator evaluator,
     IJoinBarrierService joinService,
     IPointerDispatcher dispatcher,
+    IWorkflowCompensationService compensationService,
     ILogger<WorkflowOrchestrator> logger) : IWorkflowOrchestrator
 {
     private readonly IUnitOfWork _uow = uow;
@@ -30,6 +30,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     private readonly ITransitionEvaluator _evaluator = evaluator;
     private readonly IJoinBarrierService _joinService = joinService;
     private readonly IPointerDispatcher _dispatcher = dispatcher;
+    private readonly IWorkflowCompensationService _compensationService = compensationService;
 
     private readonly ILogger<WorkflowOrchestrator> _logger = logger;
 
@@ -181,7 +182,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         {
             if (pointerId == Guid.Empty)
             {
-                _logger.LogWarning("⚠️ Received failure for Instance {Id} but PointerId is empty.", instanceId);
+                _logger.LogWarning("Received failure for Instance {Id} but PointerId is empty.", instanceId);
                 return Result.Success();
             }
 
@@ -215,30 +216,28 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
             if (pointer.RetryCount < maxRetries)
             {
-                _logger.LogInformation("🔄 Retrying Step {StepId} (Attempt {Current} of {Max})", pointer.StepId, pointer.RetryCount + 1, maxRetries);
+                _logger.LogInformation("Retrying Step {StepId}...", pointer.StepId);
 
-                // Reset trạng thái Pointer về Pending và tăng biến đếm Retry (Hàm của Entity)
                 pointer.ResetToPending();
-
-                // Lưu DB trước để chốt số lần Retry, sau đó ném lại cho Worker chạy
                 await _uow.SaveChangesAsync();
                 await _dispatcher.DispatchAsync(instance, pointer, def.DefinitionJson);
             }
             else
             {
-                // 3. THẤT BẠI HOÀN TOÀN (Vượt quá số lần Retry hoặc không cho phép Retry)
-                _logger.LogError("🔥 Step {StepId} failed permanently after {Retries} retries. Error: {Error}", pointer.StepId, pointer.RetryCount, error);
+                _logger.LogError("Step {StepId} failed permanently. Triggering Compensation.", pointer.StepId);
 
-                // Đánh dấu Pointer Failed (Gọi hàm chuẩn của Entity)
-                pointer.MarkAsFailed("Engine", errorDoc);
-
-                // Đánh dấu cả Workflow Instance Failed (Dừng toàn bộ quá trình)
-                instance.Status = WorkflowInstanceStatus.Failed;
-                // instance.CompletedAt = DateTime.UtcNow; // (Tuỳ thuộc vào cách bạn khai báo trong Entity)
-
-                // Lưu lịch sử lỗi vào Context tổng để dễ debug
+                // Đánh dấu Node và Workflow Failed
+                //pointer.MarkAsFailed("Engine", errorDoc);
+                pointer.MarkAsRouted();
+                instance.Status = WorkflowInstanceStatus.Compensating;
                 _contextManager.MergeStepOutput(instance, pointer.StepId, errorDoc);
+
+                // call SERVICE XỬ LÝ SAGA
+                await _compensationService.TriggerCompensationAsync(instance, def!.DefinitionJson);
             }
+
+            // Tương lai: Cần thêm logic để track xem khi nào tất cả lệnh Compensate chạy xong thì mới đổi status thành Compensated.
+            // Tạm thời ở mức MVP, ta fire-and-forget
 
             // ONE SAVE TO RULE THEM ALL
             await _uow.SaveChangesAsync();

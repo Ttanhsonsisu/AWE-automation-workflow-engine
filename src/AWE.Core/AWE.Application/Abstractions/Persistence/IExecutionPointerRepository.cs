@@ -39,4 +39,7 @@ public interface IExecutionPointerRepository
 
     // Lấy danh sách các pointer đang tụ tập ở nút Join
     Task<List<ExecutionPointer>> GetPointersByStepIdAsync(Guid instanceId, string stepId);
+
+    // Lấy danh sách các pointer đã hoàn thành ở nút Join (để Engine quyết định có đủ điều kiện đi tiếp hay không)
+    Task<List<ExecutionPointer>> GetCompletedPointersByInstanceIdAsync(Guid instanceId);
 }
