@@ -1,10 +1,6 @@
-﻿using AWE.Contracts.Messages;
-using AWE.Infrastructure;
-using AWE.Infrastructure.Persistence;
+﻿using AWE.Infrastructure;
 using AWE.ServiceDefaults.Extensions;
-using MassTransit;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using AWE.WorkflowEngine;
 
 // ================================================================
 // Application bootstrap
@@ -26,6 +22,9 @@ builder.Services.AddAwePersistence(builder.Configuration);
 
 // Register messaging infrastructure 
 builder.Services.AddAweMessaging(builder.Configuration);
+
+// add service engine
+builder.Services.AddWorkflowEngineService();
 
 // Register object storage
 //builder.Services.AddAweObjectStorage(builder.Configuration);

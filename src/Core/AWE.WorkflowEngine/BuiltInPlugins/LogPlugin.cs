@@ -8,12 +8,40 @@ public class LogPlugin(ILogger<LogPlugin> logger) : IWorkflowPlugin
     private readonly ILogger<LogPlugin> _logger = logger;
 
     public string Name => "Log";
+    public string DisplayName => "Ghi Log Hệ Thống";
+    public string Description => "In một thông báo ra màn hình Console của Worker.";
+    public string Category => "Core";
+    public string Icon => "lucide-terminal";
+
+
+    public string InputSchema => """
+    {
+      "type": "object",
+      "properties": {
+        "msg": { 
+          "type": "string", 
+          "title": "Nội dung Log",
+          "description": "Hỗ trợ truyền biến. VD: {{Steps.Start.Output.Data}}" 
+        }
+      },
+      "required": ["msg"]
+    }
+    """;
+
+    public string OutputSchema => """
+    {
+      "type": "object",
+      "properties": {
+        "LogStatus": { "type": "string" }
+      }
+    }
+    """;
 
     public Task<PluginResult> ExecuteAsync(PluginContext context)
     {
         // Sử dụng Helper Get<T> của bạn rất tiện lợi
         var msg = context.Get<string>("msg") ?? "No message";
-        _logger.LogInformation("📝 [LogPlugin] EXECUTE: {Msg}", msg);
+        _logger.LogInformation("[LogPlugin] EXECUTE: {Msg}", msg);
 
         return Task.FromResult(PluginResult.Success(new Dictionary<string, object>
         {
@@ -23,7 +51,7 @@ public class LogPlugin(ILogger<LogPlugin> logger) : IWorkflowPlugin
 
     public Task<PluginResult> CompensateAsync(PluginContext context)
     {
-        _logger.LogWarning("⏪ [LogPlugin] COMPENSATE: Hủy bỏ log (Thực tế là không làm gì cả).");
+        _logger.LogWarning("[LogPlugin] COMPENSATE: Hủy bỏ log (Thực tế là không làm gì cả).");
         return Task.FromResult(PluginResult.Success());
     }
 }

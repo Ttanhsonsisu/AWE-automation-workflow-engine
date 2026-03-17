@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\BuildingBlocks\AWE.Contracts\AWE.Contracts.csproj" />
     <ProjectReference Include="..\..\Core\AWE.Infrastructure\AWE.Infrastructure.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\AWE.ServiceDefaults\AWE.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\Core\AWE.WorkflowEngine\AWE.WorkflowEngine.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -16,4 +16,6 @@ public class PluginRegistry(IEnumerable<IWorkflowPlugin> plugins) : IPluginRegis
         }
         return plugin;
     }
+
+    public IEnumerable<IWorkflowPlugin> GetAllPlugins() => _plugins;
 }

@@ -40,11 +40,12 @@ public class DelayWakeUpBackgroundService(IServiceProvider serviceProvider, ILog
                     _logger.LogInformation("🔔 Time's up! Waking up Pointer {PointerId}", pointer.Id);
 
                     // Xóa báo thức để tránh đánh thức lại lần sau
-                    pointer.ResumeAt = null;
+                    //pointer.ResumeAt = null;
 
-                    // Gọi luồng Atomic Resume mà ta đã viết hôm trước!
-                    var dummyPayload = JsonDocument.Parse("{\"Message\": \"Woke up from Delay\"}");
-                    await orchestrator.ResumeStepAsync(pointer.Id, dummyPayload);
+                    // Giả lập payload trả về cho Node "Delay" (Bạn có thể tùy chỉnh theo nhu cầu, hoặc thậm chí để trống nếu không cần)
+                    var wakeupPayload = JsonDocument.Parse($"{{\"Message\": \"Woke up successfully at {now:O}\"}}");
+
+                    await orchestrator.ResumeStepAsync(pointer.Id, wakeupPayload);
                 }
             }
             catch (Exception ex)

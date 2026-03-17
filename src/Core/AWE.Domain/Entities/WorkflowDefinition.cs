@@ -30,6 +30,9 @@ public class WorkflowDefinition : AuditableEntity
     /// </summary>
     public bool IsPublished { get; private set; }
 
+    /// Optional JSON for UI rendering (e.g., layout, node positions)
+    public JsonDocument UiJson { get; set; } = null!;
+
     /// <summary>
     /// Navigation property to instances
     /// </summary>
@@ -38,7 +41,7 @@ public class WorkflowDefinition : AuditableEntity
     // Private constructor for EF Core
     private WorkflowDefinition() : base() { }
 
-    public WorkflowDefinition(string name, int version, JsonDocument definitionJson)
+    public WorkflowDefinition(string name, int version, JsonDocument definitionJson, JsonDocument? uiJson = null)
         : base()
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -50,6 +53,7 @@ public class WorkflowDefinition : AuditableEntity
         Name = name;
         Version = version;
         DefinitionJson = definitionJson ?? throw new ArgumentNullException(nameof(definitionJson));
+        UiJson = uiJson ?? JsonDocument.Parse("{}");
         IsPublished = false;
     }
 

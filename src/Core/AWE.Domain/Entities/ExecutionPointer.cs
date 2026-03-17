@@ -137,6 +137,19 @@ public class ExecutionPointer : Entity
         EndTime = DateTime.UtcNow;
     }
 
+    // Hàm này dùng để "đánh thức" Node "Wait" từ API bên ngoài, nên không cần kiểm tra lease
+    public void HibernateUntil(DateTime resumeTime)
+    {
+        Status = ExecutionPointerStatus.WaitingForEvent;
+        ResumeAt = resumeTime;
+    }
+
+    public void PauseForWebhook()
+    {
+        Status = ExecutionPointerStatus.WaitingForEvent;
+        ResumeAt = null;
+    }
+
     public void ResetToPending()
     {
         if (Status == ExecutionPointerStatus.Completed || Status == ExecutionPointerStatus.Skipped)
@@ -179,6 +192,16 @@ public class ExecutionPointer : Entity
         Active = false; // Đã xong nhiệm vụ
         Output = output; // Lưu data từ Webhook gửi vào
         EndTime = DateTime.UtcNow;
+        ResumeAt = null;
+    }
+
+    public void WakeUp()
+    {
+        if (Status != ExecutionPointerStatus.WaitingForEvent)
+            throw new InvalidOperationException($"Cannot wake up step from status: {Status}");
+
+        Status = ExecutionPointerStatus.Pending; // Trả về Pending để Worker/Engine xử lý tiếp
+        ResumeAt = null; // 🌟 Tắt chuông báo thức
     }
 
     public void MarkAsRouted()
