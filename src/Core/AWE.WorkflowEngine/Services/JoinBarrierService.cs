@@ -25,7 +25,9 @@ public class JoinBarrierService(
         if (handle == null)
         {
             _logger.LogInformation("⏳ Join {JoinId} locked by another thread.", joinNodeId);
-            return new JoinBarrierResult(false, false, null);
+            //return new JoinBarrierResult(false, false, null);
+            // [CHANGE] Thay vì trả về false để Worker tiếp tục retry, chúng ta sẽ ném exception để Worker hiểu rằng đây là lỗi tạm thời do lock và sẽ retry sau.
+            throw new InvalidOperationException($"Could not acquire lock for Join {joinNodeId}");
         }
 
         int arrivedPointersCount = await _pointerRepo.CountArrivedPointersByStepIdAsync(instance.Id, joinNodeId);
@@ -43,7 +45,7 @@ public class JoinBarrierService(
         // DEAD-PATH PROPAGATION: Tất cả các nhánh đổ vào đều bị Skipped
         if (joinPointers.All(p => p.Status == ExecutionPointerStatus.Skipped))
         {
-            _logger.LogInformation("💀 All paths to {JoinId} skipped. Propagating Dead-Path.", joinNodeId);
+            _logger.LogInformation("All paths to {JoinId} skipped. Propagating Dead-Path.", joinNodeId);
             return new JoinBarrierResult(true, true, null);
         }
 

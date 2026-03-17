@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddScoped<IPluginRegistry, PluginRegistry>();
         services.AddTransient<IWorkflowPlugin, LogPlugin>();
         services.AddTransient<IWorkflowPlugin, DelayPlugin>();
+        services.AddTransient<IWorkflowPlugin, JoinPlugin>();
 
         return services;
     }
