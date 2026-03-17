@@ -263,7 +263,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // =================================================================
         if (pointer.Status != ExecutionPointerStatus.WaitingForEvent)
         {
-            _logger.LogWarning("⚠️ [IDEMPOTENCY] Pointer {Id} is in status {Status}. Resume rejected.", pointer.Id, pointer.Status);
+            _logger.LogWarning("[IDEMPOTENCY] Pointer {Id} is in status {Status}. Resume rejected.", pointer.Id, pointer.Status);
             return Result.Success(); // Trả về Success để UI/API không báo lỗi đỏ, nhưng thực chất là bỏ qua lệnh này
         }
 
@@ -278,14 +278,17 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // FR-11: WAKE UP & INJECT DATA (Đánh thức và Bơm dữ liệu)
         // =================================================================
         // Cập nhật Output cho chính Node Wait/Delay này
-        pointer.Output = resumeData;
+        pointer.CompleteFromWait(resumeData);
 
         // Cập nhật state Context Data của toàn bộ Workflow bằng hàm xịn bạn vừa viết
         _contextManager.MergeStepOutput(instance, pointer.StepId, resumeData);
 
         // Đổi trạng thái sang Pending để đánh lừa luồng HandleStepCompletionAsync phía sau 
         // hiểu rằng Node này vừa được "Worker" chạy xong
-        pointer.ResetToPending();
+
+
+
+        ///pointer.ResetToPending();
 
         // KHÔNG GỌI _uow.SaveChangesAsync() Ở ĐÂY!
         // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất

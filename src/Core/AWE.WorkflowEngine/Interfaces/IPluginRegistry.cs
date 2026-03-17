@@ -5,4 +5,5 @@ namespace AWE.WorkflowEngine.Interfaces;
 public interface IPluginRegistry
 {
     IWorkflowPlugin GetPlugin(string name);
+    IEnumerable<IWorkflowPlugin> GetAllPlugins();
 }

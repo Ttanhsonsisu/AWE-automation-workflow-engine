@@ -38,6 +38,16 @@ public class WorkflowInstance : AuditableEntity
     public DateTime StartTime { get; private set; }
 
     /// <summary>
+    /// ID của luồng Cha (nếu đây là luồng Con)
+    /// </summary>
+    public Guid? ParentInstanceId { get; private set; }
+
+    /// <summary>
+    /// ID của Node gọi luồng Con này (để đánh thức Cha khi xong việc)
+    /// </summary>
+    public Guid? ParentPointerId { get; private set; }
+
+    /// <summary>
     /// Navigation properties
     /// </summary>
     public virtual WorkflowDefinition Definition { get; private set; } = null!;
@@ -48,7 +58,12 @@ public class WorkflowInstance : AuditableEntity
     // Private constructor for EF Core
     private WorkflowInstance() : base() { }
 
-    public WorkflowInstance(Guid definitionId, int definitionVersion, JsonDocument? initialContext = null)
+    public WorkflowInstance(
+        Guid definitionId,
+        int definitionVersion,
+        JsonDocument? initialContext = null,
+        Guid? parentInstanceId = null,
+        Guid? parentPointerId = null)
         : base()
     {
         DefinitionId = definitionId;
@@ -56,6 +71,8 @@ public class WorkflowInstance : AuditableEntity
         Status = WorkflowInstanceStatus.Running;
         ContextData = initialContext ?? JsonDocument.Parse("{}");
         StartTime = DateTime.UtcNow;
+        ParentInstanceId = parentInstanceId;
+        ParentPointerId = parentPointerId;
     }
 
     /// <summary>
@@ -64,19 +81,6 @@ public class WorkflowInstance : AuditableEntity
     public void UpdateContext(JsonDocument newContext)
     {
         ContextData = newContext ?? throw new ArgumentNullException(nameof(newContext));
-        MarkAsUpdated();
-    }
-
-    /// <summary>
-    /// Merge context data from a specific step
-    /// </summary>
-    public void MergeStepContext(string stepId, JsonDocument stepContext)
-    {
-        if (string.IsNullOrWhiteSpace(stepId))
-            throw new ArgumentException("Step ID cannot be empty", nameof(stepId));
-
-        // In real implementation, merge stepContext into ContextData under Steps[stepId]
-        // For now, simplified version
         MarkAsUpdated();
     }
 

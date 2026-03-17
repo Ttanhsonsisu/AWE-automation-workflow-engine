@@ -10,6 +10,19 @@ public interface IWorkflowPlugin
     /// Tên định danh của Plugin (VD: "ExportExcel", "SendEmail").
     /// </summary>
     string Name { get; }
+    /// <summary>
+    /// Metadata hiển thị (Dùng cho Frontend React)
+    /// </summary>
+    string DisplayName { get; }
+    string Description { get; }
+    string Category { get; } 
+    string Icon { get; }
+
+    /// <summary>
+    /// Schema Cấu hình (JSON Schema định nghĩa Form nhập liệu và Output)
+    /// </summary>
+    string InputSchema { get; }
+    string OutputSchema { get; }
 
     /// <summary>
     /// Hàm thực thi logic chính.

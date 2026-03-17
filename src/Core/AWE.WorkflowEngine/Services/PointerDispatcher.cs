@@ -42,13 +42,15 @@ public class PointerDispatcher(IPublishEndpoint publishEndpoint, IVariableResolv
                     delaySeconds = parsedSec;
                 }
 
-                // Cài đặt đồng hồ báo thức!
-                pointer.ResumeAt = DateTime.UtcNow.AddSeconds(delaySeconds);
+                // add time buffer 5s để đảm bảo Worker không bị đánh thức quá sớm do trễ mạng hoặc load cao
+                pointer.HibernateUntil(DateTime.UtcNow.AddSeconds(delaySeconds));
                 _logger.LogInformation("⏳ Workflow {InstanceId} HIBERNATED at Step {StepId}. Will wake up at {ResumeAt}", instance.Id, pointer.StepId, pointer.ResumeAt);
             }
             else
             {
-                _logger.LogInformation("⏸️ Workflow {InstanceId} PAUSED at Step {StepId} (Waiting for Webhook).", instance.Id, pointer.StepId);
+                // Với Step "Wait", chúng ta sẽ đợi API bên ngoài gọi vào Resume, nên không set HibernateUntil mà chỉ đơn giản là chuyển trạng thái và chờ.
+                pointer.PauseForWebhook();
+                _logger.LogInformation("Workflow {InstanceId} PAUSED at Step {StepId} (Waiting for Webhook).", instance.Id, pointer.StepId);
             }
 
             return;
