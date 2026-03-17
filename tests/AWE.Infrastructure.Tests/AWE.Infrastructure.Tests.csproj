@@ -18,8 +18,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AWE.Core\AWE.Infrastructure\AWE.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\AWE.Shared\AWE.Shared.csproj" />
+    <ProjectReference Include="..\..\src\Core\AWE.Infrastructure\AWE.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\AWE.Shared\AWE.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
