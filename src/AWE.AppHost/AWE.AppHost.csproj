@@ -15,9 +15,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AWE.ApiGateway\AWE.ApiGateway.csproj" />
-    <ProjectReference Include="..\AWE.Worker\AWE.Worker.csproj" />
-    <ProjectReference Include="..\Worker\AWE.Wokrer.Engine\AWE.Wokrer.Engine.csproj" />
+    <ProjectReference Include="..\Presentation\AWE.ApiGateway\AWE.ApiGateway.csproj" />
+    <ProjectReference Include="..\Workers\AWE.Worker\AWE.Worker.csproj" />
+    <ProjectReference Include="..\Workers\AWE.Wokrer.Engine\AWE.Wokrer.Engine.csproj" />
   </ItemGroup>
 
 </Project>
