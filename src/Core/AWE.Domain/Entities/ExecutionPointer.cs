@@ -29,7 +29,9 @@ public class ExecutionPointer : Entity
     public bool Routed { get; private set; } = false;
 
     // [CHANGE] Đổi tên StepContext -> Output cho đúng ngữ nghĩa "Kết quả trả về"
-    public JsonDocument? Output { get; private set; }
+    public JsonDocument? Output { get; set; }
+    // Trường này dùng để lưu thời điểm đánh thức lại Node "Wait" từ API bên ngoài, giúp phân biệt với EndTime của Worker bình thường
+    public DateTime? ResumeAt { get; set; }
 
     public virtual WorkflowInstance Instance { get; private set; } = null!;
     public virtual ICollection<ExecutionLog> ExecutionLogs { get; private set; } = new List<ExecutionLog>();

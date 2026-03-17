@@ -1,9 +1,7 @@
 ﻿using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
-using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
-using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using AWE.WorkflowEngine.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -249,6 +247,52 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             // Nếu bản thân Engine bị lỗi DB khi ghi log, ta báo Failure để hệ thống gọi lại sau
             return Result.Failure(Error.Unexpected("System.StepFailureError", ex.Message));
         }
+    }
+
+    public async Task<Result> ResumeStepAsync(Guid pointerId, JsonDocument resumeData)
+    {
+        _logger.LogInformation("⏰ Attempting to RESUME Pointer {PointerId}...", pointerId);
+
+        // 1. Lấy Pointer từ DB
+        var pointer = await _pointerRepo.GetPointerByIdAsync(pointerId);
+        if (pointer == null)
+            return Result.Failure(Error.NotFound("Pointer.NotFound", "Execution Pointer not found."));
+
+        // =================================================================
+        // FR-12: ATOMIC IDEMPOTENCY CHECK (Chống kích hoạt kép)
+        // =================================================================
+        if (pointer.Status != ExecutionPointerStatus.WaitingForEvent)
+        {
+            _logger.LogWarning("⚠️ [IDEMPOTENCY] Pointer {Id} is in status {Status}. Resume rejected.", pointer.Id, pointer.Status);
+            return Result.Success(); // Trả về Success để UI/API không báo lỗi đỏ, nhưng thực chất là bỏ qua lệnh này
+        }
+
+        // 2. Lấy Instance chuẩn xác qua Repository
+        var instance = await _instanceRepo.GetInstanceByIdAsync(pointer.InstanceId);
+        if (instance == null || instance.Status != WorkflowInstanceStatus.Running)
+            return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not running."));
+
+        // Đã xóa dòng fetch WorkflowDefinition thừa thãi và vi phạm Clean Architecture
+
+        // =================================================================
+        // FR-11: WAKE UP & INJECT DATA (Đánh thức và Bơm dữ liệu)
+        // =================================================================
+        // Cập nhật Output cho chính Node Wait/Delay này
+        pointer.Output = resumeData;
+
+        // Cập nhật state Context Data của toàn bộ Workflow bằng hàm xịn bạn vừa viết
+        _contextManager.MergeStepOutput(instance, pointer.StepId, resumeData);
+
+        // Đổi trạng thái sang Pending để đánh lừa luồng HandleStepCompletionAsync phía sau 
+        // hiểu rằng Node này vừa được "Worker" chạy xong
+        pointer.ResetToPending();
+
+        // KHÔNG GỌI _uow.SaveChangesAsync() Ở ĐÂY!
+        // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
+        // Như vậy hệ thống mới đảm bảo tính Atomic 100%.
+
+        // 3. Tái sử dụng logic điều hướng chuẩn của Engine
+        return await HandleStepCompletionAsync(instance.Id, pointer.Id, resumeData);
     }
 
     // Hàm tiện ích để lấy thông tin Step từ JSON Definition (để đọc cấu hình MaxRetries)
