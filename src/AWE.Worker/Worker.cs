@@ -3,7 +3,10 @@ using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
+using AWE.Infrastructure.Plugins;
+using AWE.Sdk;
 using AWE.Shared.Consts;
+using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 
@@ -15,6 +18,8 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
     private readonly IExecutionPointerRepository _pointerRepo;
     private readonly IUnitOfWork _uow;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IPluginRegistry _registry;
+    private readonly PluginLoader _pluginLoader;
 
     // Worker ID
     private readonly string _workerId = $"Worker-{Environment.MachineName}-{Guid.NewGuid().ToString()[..4]}";
@@ -23,13 +28,17 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
         ILogger<PluginConsumer> logger,     
         IExecutionPointerRepository pointerRepo,
         IUnitOfWork uow,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        IPluginRegistry registry,
+        PluginLoader pluginLoader
+        )
     {
         _logger = logger;
         _pointerRepo = pointerRepo;
         _uow = uow;
         _serviceProvider = serviceProvider;
-        // Đã bỏ: PluginLoader, IStorageService (Chưa cần thiết cho giai đoạn test Core)
+        _registry = registry;
+        _pluginLoader = pluginLoader;
     }
 
     public async Task Consume(ConsumeContext<ExecutePluginCommand> context)
@@ -65,47 +74,50 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             // =================================================================
             // 2. ACQUIRE LEASE
             // =================================================================
-            if (!pointer.TryAcquireLease(_workerId, TimeSpan.FromMinutes(5)))
-            {
-                _logger.LogWarning("🔒 Step {Node} locked by {Owner}.", cmd.NodeId, pointer.LeasedBy);
-                return;
-            }
+            if (!pointer.TryAcquireLease(_workerId, TimeSpan.FromMinutes(5))) return;
             await _uow.SaveChangesAsync();
 
             // =================================================================
-            // 3. EXECUTE (INTERNAL LOGIC - HARDCODED FOR TESTING)
+            // DYNAMIC ROUTER: Phân luồng thực thi (Hybrid Architecture)
             // =================================================================
-            // Thay vì tải DLL, ta gọi hàm xử lý nội bộ giả lập
+            PluginResult pluginResult;
+            var pluginContext = new PluginContext(cmd.Payload, context.CancellationToken);
 
-            var outputs = await ExecuteInternalLogicAsync(cmd.StepType, cmd.Payload, context.CancellationToken);
+            switch (cmd.ExecutionMode)
+            {
+                case PluginExecutionMode.DynamicDll:
+                    pluginResult = await _pluginLoader.ExecutePluginAsync(cmd.DllPath!, cmd.Payload, context.CancellationToken);
+                    break;
+
+                case PluginExecutionMode.RemoteGrpc:
+                    // TODO: Mở rộng sau. Tạm thời văng lỗi để chặn.
+                    throw new NotImplementedException("gRPC Remote Runner is coming soon!");
+
+                case PluginExecutionMode.BuiltIn:
+                default:
+                    var builtInPlugin = _registry.GetPlugin(cmd.StepType);
+                    pluginResult = await builtInPlugin.ExecuteAsync(pluginContext);
+                    break;
+            }
+
+            // Xử lý Lỗi nghiệp vụ từ Plugin
+            if (!pluginResult.IsSuccess)
+            {
+                throw new Exception(pluginResult.ErrorMessage ?? "Plugin failed without message.");
+            }
 
             // =================================================================
-            // 4. PERSISTENCE (Lưu kết quả)
+            // PERSISTENCE & OUTBOX EVENT
             // =================================================================
-
-            // Serialize kết quả
-            var outputDoc = JsonSerializer.SerializeToDocument(outputs);
-
-            // Cập nhật DB
+            var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
             pointer.Complete(_workerId, outputDoc);
 
-            //var routingKey = "workflow.event.completed";
-            // change: use const for routingKey
             var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}completed";
-
-            // Bắn Event báo xong
             await context.Publish(new StepCompletedEvent(
-                  WorkflowInstanceId: cmd.InstanceId,
-                  ExecutionPointerId: cmd.ExecutionPointerId,
-                  StepId: cmd.NodeId,
-                  Output: outputDoc,
-                  CompletedAt: DateTime.UtcNow
-            ), context =>
-            {
-                context.SetRoutingKey(routingKey);
-            });
+                  cmd.InstanceId, cmd.ExecutionPointerId, cmd.NodeId, outputDoc, DateTime.UtcNow
+            ), ctx => ctx.SetRoutingKey(routingKey));
 
-            await _uow.SaveChangesAsync();
+            await _uow.SaveChangesAsync(); // Double-Save: Lưu Entity + Outbox Message
 
             _logger.LogInformation("✅ [{Worker}] Step {Node} Completed.", _workerId, cmd.NodeId);
             await cts.CancelAsync();
@@ -126,47 +138,47 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
     /// <summary>
     /// Hàm giả lập Logic của Plugin để test luồng Engine
     /// </summary>
-    private async Task<Dictionary<string, object>> ExecuteInternalLogicAsync(string stepType, string payloadJson, CancellationToken ct)
-    {
-        // Giả lập độ trễ xử lý (như đang chạy plugin thật)
-        await Task.Delay(500, ct);
+    //private async Task<Dictionary<string, object>> ExecuteInternalLogicAsync(string stepType, string payloadJson, CancellationToken ct)
+    //{
+    //    // Giả lập độ trễ xử lý (như đang chạy plugin thật)
+    //    await Task.Delay(500, ct);
 
-        var inputs = string.IsNullOrEmpty(payloadJson)
-            ? new Dictionary<string, object>()
-            : JsonSerializer.Deserialize<Dictionary<string, object>>(payloadJson) ?? new();
+    //    var inputs = string.IsNullOrEmpty(payloadJson)
+    //        ? new Dictionary<string, object>()
+    //        : JsonSerializer.Deserialize<Dictionary<string, object>>(payloadJson) ?? new();
 
-        // Xử lý cứng dựa trên StepType (Dispatcher)
-        return stepType switch
-        {
-            "HttpRequest" => new Dictionary<string, object>
-            {
-                { "Status", 200 },
-                { "Body", "{\"message\": \"Fake API Response\"}" },
-                { "Time", DateTime.UtcNow }
-            },
+    //    // Xử lý cứng dựa trên StepType (Dispatcher)
+    //    return stepType switch
+    //    {
+    //        "HttpRequest" => new Dictionary<string, object>
+    //        {
+    //            { "Status", 200 },
+    //            { "Body", "{\"message\": \"Fake API Response\"}" },
+    //            { "Time", DateTime.UtcNow }
+    //        },
 
-            "Log" => new Dictionary<string, object>
-            {
-                { "LogStatus", "Written to Console" }
-            },
+    //        "Log" => new Dictionary<string, object>
+    //        {
+    //            { "LogStatus", "Written to Console" }
+    //        },
 
-            "Delay" => new Dictionary<string, object>
-            {
-                { "Waited", "500ms" }
-            },
-            "CrashTest" => await RunCrashTestAsync(ct),
-            "SagaTest" => throw new Exception("BÙM! Giả lập lỗi hệ thống để test Rollback!"),
-            "Join" => new Dictionary<string, object>
-            {
-                { "JoinStatus", "Barrier Passed successfully" }
-            },
+    //        "Delay" => new Dictionary<string, object>
+    //        {
+    //            { "Waited", "500ms" }
+    //        },
+    //        "CrashTest" => await RunCrashTestAsync(ct),
+    //        "SagaTest" => throw new Exception("BÙM! Giả lập lỗi hệ thống để test Rollback!"),
+    //        "Join" => new Dictionary<string, object>
+    //        {
+    //            { "JoinStatus", "Barrier Passed successfully" }
+    //        },
             
 
 
-            // Nếu gặp loại chưa định nghĩa -> Lỗi
-            _ => throw new NotImplementedException($"Internal Plugin '{stepType}' not implemented yet.")
-        };
-    }
+    //        // Nếu gặp loại chưa định nghĩa -> Lỗi
+    //        _ => throw new NotImplementedException($"Internal Plugin '{stepType}' not implemented yet.")
+    //    };
+    //}
 
     private async Task HandleFailureAsync(ExecutionPointer pointer, ExecutePluginCommand cmd, string errorMsg, ConsumeContext context)
     {

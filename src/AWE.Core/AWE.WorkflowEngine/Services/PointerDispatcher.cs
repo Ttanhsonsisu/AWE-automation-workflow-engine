@@ -35,17 +35,42 @@ public class PointerDispatcher : IPointerDispatcher
             return;
         }
 
-        // Logic Resolve Variable và Publish giữ nguyên
-        string rawInputs = stepDef.TryGetProperty("Inputs", out var inputsElem) ? inputsElem.GetRawText() : "{}";
-        string resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
+        // Logic Resolve Variable
+        var rawInputs = stepDef.TryGetProperty("Inputs", out var inputsElem) ? inputsElem.GetRawText() : "{}";
+        var resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
+
+        // =================================================================
+        // ĐỌC CẤU HÌNH EXECUTION MODE & DLL PATH
+        // =================================================================
+        PluginExecutionMode executionMode = PluginExecutionMode.BuiltIn; // Mặc định là chạy Built-in
+
+        if (stepDef.TryGetProperty("ExecutionMode", out var modeElem))
+        {
+            if (modeElem.ValueKind == JsonValueKind.Number && modeElem.TryGetInt32(out int modeInt))
+            {
+                executionMode = (PluginExecutionMode)modeInt;
+            }
+            else if (modeElem.ValueKind == JsonValueKind.String && Enum.TryParse<PluginExecutionMode>(modeElem.GetString(), true, out var parsedMode))
+            {
+                executionMode = parsedMode;
+            }
+        }
+
+        string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
+
         var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
 
+        // =================================================================
+        // GỬI LỆNH ĐẾN WORKER
+        // =================================================================
         await _publishEndpoint.Publish(new ExecutePluginCommand(
             InstanceId: instance.Id,
             ExecutionPointerId: pointer.Id,
             NodeId: pointer.StepId,
             StepType: stepType,
-            Payload: resolvedPayload
+            Payload: resolvedPayload,
+            ExecutionMode: executionMode, 
+            DllPath: dllPath             
         ), ctx => ctx.SetRoutingKey(routingKey));
     }
 

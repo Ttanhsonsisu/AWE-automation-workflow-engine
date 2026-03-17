@@ -15,4 +15,7 @@ public interface IWorkflowPlugin
     /// Hàm thực thi logic chính.
     /// </summary>
     Task<PluginResult> ExecuteAsync(PluginContext context);
+
+    // hỗ trợ rollback nếu ExecuteAsync thất bại hoặc có lỗi xảy ra trong quá trình thực thi.
+    Task<PluginResult> CompensateAsync(PluginContext context);
 }

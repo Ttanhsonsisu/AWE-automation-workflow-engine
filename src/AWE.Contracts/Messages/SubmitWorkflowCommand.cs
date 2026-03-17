@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using AWE.Domain.Enums;
 
 #region Workflow Submission
 
@@ -38,7 +39,9 @@ public record ExecutePluginCommand(
     Guid ExecutionPointerId,     // [QUAN TRỌNG] Khóa chính dòng Pointer trong DB
     string NodeId,               // Tên bước trong JSON (VD: "Activity_1")
     string StepType,             // Loại Plugin (VD: "Http", "Email")
-    string Payload               // Dữ liệu JSON đã được Engine giải quyết biến
+    string Payload,               // Dữ liệu JSON đã được Engine giải quyết biến
+    PluginExecutionMode ExecutionMode,
+    string? DllPath = null
 );
 
 #endregion
