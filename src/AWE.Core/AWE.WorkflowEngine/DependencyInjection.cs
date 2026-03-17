@@ -1,4 +1,6 @@
-﻿using AWE.WorkflowEngine.BackgroundServices;
+﻿using AWE.Sdk;
+using AWE.WorkflowEngine.BackgroundServices;
+using AWE.WorkflowEngine.BuiltInPlugins;
 using AWE.WorkflowEngine.Interfaces;
 using AWE.WorkflowEngine.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +22,11 @@ public static class DependencyInjection
 
         // add backgroundservice
         services.AddHostedService<RecoveryBackgroundService>();
+
+        // add built-in plugins
+        services.AddScoped<IPluginRegistry, PluginRegistry>();
+        services.AddTransient<IWorkflowPlugin, LogPlugin>();
+        services.AddTransient<IWorkflowPlugin, DelayPlugin>();
 
         return services;
     }

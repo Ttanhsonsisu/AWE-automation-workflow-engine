@@ -1,15 +1,20 @@
 ﻿using AWE.Contracts.Messages;
+using AWE.Sdk;
+using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
+using Microsoft.Win32;
 
 namespace AWE.Wokrer.Engine.Consumers;
 
 public class PluginCompensationConsumer : IConsumer<CompensatePluginCommand>
 {
     private readonly ILogger<PluginCompensationConsumer> _logger;
+    private readonly IPluginRegistry _registry;
 
-    public PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logger)
+    public PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logger, IPluginRegistry pluginRegistry)
     {
         _logger = logger;
+        _registry = pluginRegistry;
     }
 
     public async Task Consume(ConsumeContext<CompensatePluginCommand> context)
@@ -19,14 +24,15 @@ public class PluginCompensationConsumer : IConsumer<CompensatePluginCommand>
 
         try
         {
-            // TODO: Gọi hàm ExecuteCompensationAsync của Plugin tương ứng
-            // Ví dụ:
-            // if (msg.StepType == "CreateUser") -> Gọi API Http Delete User(msg.Payload.UserId)
-            // if (msg.StepType == "ChargeCreditCard") -> Gọi Stripe API Refund(msg.Payload.TransactionId)
+            var plugin = _registry.GetPlugin(msg.StepType);
+            var pluginContext = new PluginContext(msg.Payload, context.CancellationToken); // Payload lúc này là Output cũ
 
-            await Task.Delay(500); // Giả lập chạy Rollback
+            var compResult = await plugin.CompensateAsync(pluginContext);
 
-            _logger.LogInformation("✅ [Worker] Step {NodeId} Compensated Successfully.", msg.NodeId);
+            if (!compResult.IsSuccess)
+            {
+                throw new Exception($"Compensation failed: {compResult.ErrorMessage}");
+            }
         }
         catch (Exception ex)
         {

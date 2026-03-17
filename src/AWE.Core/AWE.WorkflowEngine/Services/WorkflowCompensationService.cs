@@ -2,6 +2,7 @@
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
+using AWE.Domain.Enums;
 using AWE.Shared.Consts;
 using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
@@ -27,7 +28,7 @@ public class WorkflowCompensationService : IWorkflowCompensationService
 
     public async Task TriggerCompensationAsync(WorkflowInstance instance, JsonDocument defJson)
     {
-        _logger.LogWarning("🚨 Initiating SAGA COMPENSATION for Instance {InstanceId}", instance.Id);
+        _logger.LogWarning("Initiating SAGA COMPENSATION for Instance {InstanceId}", instance.Id);
 
         // 1. Lấy danh sách các node đã Completed (Đã được sort LIFO từ DB)
         var completedPointers = await _pointerRepo.GetCompletedPointersByInstanceIdAsync(instance.Id);
@@ -38,27 +39,50 @@ public class WorkflowCompensationService : IWorkflowCompensationService
             return;
         }
 
-        // 2. Lặp qua từng Node và bắn lệnh Rollback
         var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}compensate";
 
+        // 2. Lặp qua từng Node và bắn lệnh Rollback
         foreach (var pointer in completedPointers)
         {
             var stepDef = GetStepDefinition(defJson, pointer.StepId);
             string stepType = stepDef.GetProperty("Type").GetString()!;
 
             // LƯU Ý: Gửi OUTPUT cũ cho Plugin để nó biết đường Rollback
-            // Nếu step không có output, gửi chuỗi "{}"
             string rollbackPayload = pointer.Output?.RootElement.GetRawText() ?? "{}";
 
+            // =================================================================
+            // ĐỌC CẤU HÌNH EXECUTION MODE & DLL PATH (Dành cho lúc Lùi xe)
+            // =================================================================
+            PluginExecutionMode executionMode = PluginExecutionMode.BuiltIn;
+
+            if (stepDef.TryGetProperty("ExecutionMode", out var modeElem))
+            {
+                if (modeElem.ValueKind == JsonValueKind.Number && modeElem.TryGetInt32(out int modeInt))
+                {
+                    executionMode = (PluginExecutionMode)modeInt;
+                }
+                else if (modeElem.ValueKind == JsonValueKind.String && Enum.TryParse<PluginExecutionMode>(modeElem.GetString(), true, out var parsedMode))
+                {
+                    executionMode = parsedMode;
+                }
+            }
+
+            string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
+
+            // =================================================================
+            // BẮN LỆNH COMPENSATE
+            // =================================================================
             await _publishEndpoint.Publish(new CompensatePluginCommand(
                 InstanceId: instance.Id,
                 ExecutionPointerId: pointer.Id,
                 NodeId: pointer.StepId,
                 StepType: stepType,
-                Payload: rollbackPayload
+                Payload: rollbackPayload,
+                ExecutionMode: executionMode, 
+                DllPath: dllPath              
             ), ctx => ctx.SetRoutingKey(routingKey));
 
-            _logger.LogInformation("Dispatched Rollback Command for Step {StepId} ({StepType})", pointer.StepId, stepType);
+            _logger.LogInformation("Dispatched Rollback Command for Step {StepId} ({StepType}) via Mode {Mode}", pointer.StepId, stepType, executionMode);
         }
     }
 
