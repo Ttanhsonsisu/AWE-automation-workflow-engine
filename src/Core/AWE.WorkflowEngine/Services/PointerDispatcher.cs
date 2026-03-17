@@ -20,17 +20,39 @@ public class PointerDispatcher(IPublishEndpoint publishEndpoint, IVariableResolv
         var stepDef = GetStepDefinition(defJson, pointer.StepId);
         string stepType = stepDef.GetProperty("Type").GetString()!;
 
-        // Xử lý Node Wait
-        if (stepType == "Wait")
-        {
-            pointer.Status = ExecutionPointerStatus.WaitingForEvent;
-            _logger.LogInformation("⏸️ Workflow {InstanceId} PAUSED at Step {StepId}.", instance.Id, pointer.StepId);
-            return;
-        }
 
         // Logic Resolve Variable
         var rawInputs = stepDef.TryGetProperty("Inputs", out var inputsElem) ? inputsElem.GetRawText() : "{}";
         var resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
+        // =================================================================
+        // FR-11: HIBERNATE (WAIT & DELAY) - KHÔNG GỬI XUỐNG WORKER
+        // =================================================================
+        if (stepType == "Wait" || stepType == "Delay")
+        {
+            pointer.Status = ExecutionPointerStatus.WaitingForEvent;
+
+            if (stepType == "Delay")
+            {
+                var inputDict = JsonSerializer.Deserialize<Dictionary<string, object>>(resolvedPayload) ?? new();
+
+                // Giả sử input có trường "seconds" quy định số giây cần chờ
+                int delaySeconds = 60; // Mặc định 1 phút nếu không truyền
+                if (inputDict.TryGetValue("seconds", out var secObj) && int.TryParse(secObj.ToString(), out int parsedSec))
+                {
+                    delaySeconds = parsedSec;
+                }
+
+                // Cài đặt đồng hồ báo thức!
+                pointer.ResumeAt = DateTime.UtcNow.AddSeconds(delaySeconds);
+                _logger.LogInformation("⏳ Workflow {InstanceId} HIBERNATED at Step {StepId}. Will wake up at {ResumeAt}", instance.Id, pointer.StepId, pointer.ResumeAt);
+            }
+            else
+            {
+                _logger.LogInformation("⏸️ Workflow {InstanceId} PAUSED at Step {StepId} (Waiting for Webhook).", instance.Id, pointer.StepId);
+            }
+
+            return;
+        }
 
         // =================================================================
         // ĐỌC CẤU HÌNH EXECUTION MODE & DLL PATH

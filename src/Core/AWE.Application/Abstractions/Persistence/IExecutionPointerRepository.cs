@@ -2,7 +2,7 @@
 
 namespace AWE.Application.Abstractions.Persistence;
 
-public interface IExecutionPointerRepository
+public interface IExecutionPointerRepository 
 {
     Task<ExecutionPointer?> GetPointerByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
@@ -42,4 +42,7 @@ public interface IExecutionPointerRepository
 
     // Lấy danh sách các pointer đã hoàn thành ở nút Join (để Engine quyết định có đủ điều kiện đi tiếp hay không)
     Task<List<ExecutionPointer>> GetCompletedPointersByInstanceIdAsync(Guid instanceId);
+
+    // Dành cho Delay Wake-up Service: Tìm các Pointer đang ngủ mà đã đến giờ đánh thức
+    Task<List<ExecutionPointer>> GetExpiredWaitingForEventAsync(DateTime now, CancellationToken cancellationToken = default);
 }

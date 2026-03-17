@@ -22,6 +22,7 @@ public static class DependencyInjection
 
         // add backgroundservice
         services.AddHostedService<RecoveryBackgroundService>();
+        services.AddHostedService<DelayWakeUpBackgroundService>();
 
         // add built-in plugins
         services.AddScoped<IPluginRegistry, PluginRegistry>();

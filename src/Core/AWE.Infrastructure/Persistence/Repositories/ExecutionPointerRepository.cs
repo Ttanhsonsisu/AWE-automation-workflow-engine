@@ -131,4 +131,13 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
             .OrderByDescending(p => p.EndTime) // Sắp xếp LIFO: Chạy sau cùng thì Rollback đầu tiên
             .ToListAsync();
     }
+
+    public Task<List<ExecutionPointer>> GetExpiredWaitingForEventAsync(DateTime now, CancellationToken cancellationToken = default)
+    {
+        return _context.ExecutionPointers
+            .Where(p => p.Status == ExecutionPointerStatus.WaitingForEvent
+                     && p.ResumeAt.HasValue
+                     && p.ResumeAt.Value <= now)
+            .ToListAsync(cancellationToken);
+    }
 }
