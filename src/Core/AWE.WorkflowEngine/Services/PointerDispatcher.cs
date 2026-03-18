@@ -9,13 +9,12 @@ using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
 
-public class PointerDispatcher(IPublishEndpoint publishEndpoint, IVariableResolver resolver, ILogger<PointerDispatcher> logger) : IPointerDispatcher
+public class PointerDispatcher(IVariableResolver resolver, ILogger<PointerDispatcher> logger) : IPointerDispatcher
 {
-    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
     private readonly IVariableResolver _resolver = resolver;
     private readonly ILogger<PointerDispatcher> _logger = logger;
 
-    public async Task DispatchAsync(WorkflowInstance instance, ExecutionPointer pointer, JsonDocument defJson)
+    public async Task<ExecutePluginCommand?> CreateDispatchCommand(WorkflowInstance instance, ExecutionPointer pointer, JsonDocument defJson)
     {
         var stepDef = GetStepDefinition(defJson, pointer.StepId);
         string stepType = stepDef.GetProperty("Type").GetString()!;
@@ -53,7 +52,7 @@ public class PointerDispatcher(IPublishEndpoint publishEndpoint, IVariableResolv
                 _logger.LogInformation("Workflow {InstanceId} PAUSED at Step {StepId} (Waiting for Webhook).", instance.Id, pointer.StepId);
             }
 
-            return;
+            return null;
         }
 
         // =================================================================
@@ -75,20 +74,17 @@ public class PointerDispatcher(IPublishEndpoint publishEndpoint, IVariableResolv
 
         string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
 
-        var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
-
-        // =================================================================
-        // GỬI LỆNH ĐẾN WORKER
-        // =================================================================
-        await _publishEndpoint.Publish(new ExecutePluginCommand(
+        // update pointer status to Running before dispatching to ensure visibility in case of quick execution
+        return new ExecutePluginCommand(
             InstanceId: instance.Id,
             ExecutionPointerId: pointer.Id,
             NodeId: pointer.StepId,
             StepType: stepType,
             Payload: resolvedPayload,
-            ExecutionMode: executionMode, 
-            DllPath: dllPath             
-        ), ctx => ctx.SetRoutingKey(routingKey));
+            ExecutionMode: executionMode,
+            DllPath: dllPath
+        );
+
     }
 
     private JsonElement GetStepDefinition(JsonDocument defJson, string stepId)

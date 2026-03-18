@@ -4,24 +4,22 @@ using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
-using AWE.Shared.Consts;
-using MassTransit;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
 
 public class WorkflowCompensationService(
     IExecutionPointerRepository pointerRepo,
-    IPublishEndpoint publishEndpoint,
     ILogger<WorkflowCompensationService> logger) : IWorkflowCompensationService
 {
     private readonly IExecutionPointerRepository _pointerRepo = pointerRepo;
-    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
     private readonly ILogger<WorkflowCompensationService> _logger = logger;
 
-    public async Task TriggerCompensationAsync(WorkflowInstance instance, JsonDocument defJson)
+    public async Task<List<CompensatePluginCommand>> TriggerCompensationAsync(WorkflowInstance instance, JsonDocument defJson)
     {
         _logger.LogWarning("Initiating SAGA COMPENSATION for Instance {InstanceId}", instance.Id);
+
+        var commands = new List<CompensatePluginCommand>();
 
         // 1. Lấy danh sách các node đã Completed (Đã được sort LIFO từ DB)
         var completedPointers = await _pointerRepo.GetCompletedPointersByInstanceIdAsync(instance.Id);
@@ -29,10 +27,8 @@ public class WorkflowCompensationService(
         if (!completedPointers.Any())
         {
             _logger.LogInformation("No completed steps found to compensate for Instance {InstanceId}.", instance.Id);
-            return;
+            return commands;
         }
-
-        var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}compensate";
 
         // 2. Lặp qua từng Node và bắn lệnh Rollback
         foreach (var pointer in completedPointers)
@@ -62,21 +58,22 @@ public class WorkflowCompensationService(
 
             string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
 
-            // =================================================================
-            // BẮN LỆNH COMPENSATE
-            // =================================================================
-            await _publishEndpoint.Publish(new CompensatePluginCommand(
+            // update: Đối với Rollback, chúng ta sẽ luôn gửi lệnh CompensatePluginCommand,
+            // và bên Plugin sẽ tự quyết định có thực hiện rollback logic hay không dựa trên payload & execution mode
+            commands.Add(new CompensatePluginCommand(
                 InstanceId: instance.Id,
                 ExecutionPointerId: pointer.Id,
                 NodeId: pointer.StepId,
                 StepType: stepType,
                 Payload: rollbackPayload,
-                ExecutionMode: executionMode, 
-                DllPath: dllPath              
-            ), ctx => ctx.SetRoutingKey(routingKey));
+                ExecutionMode: executionMode,
+                DllPath: dllPath
+            ));
 
             _logger.LogInformation("Dispatched Rollback Command for Step {StepId} ({StepType}) via Mode {Mode}", pointer.StepId, stepType, executionMode);
         }
+
+        return commands;
     }
 
     private JsonElement GetStepDefinition(JsonDocument defJson, string stepId)

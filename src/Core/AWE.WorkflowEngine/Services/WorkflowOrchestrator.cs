@@ -4,9 +4,9 @@ using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using MassTransit;
-using MassTransit.Transports;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -56,8 +56,12 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // 3. Khởi tạo TẤT CẢ các Start Pointers
         var startNodeIds = _evaluator.FindStartNodeIds(def.DefinitionJson);
 
+        // add vào List để sau này có thể dùng chung cho việc Dispatch, tránh phải query lại DB nhiều lần trong vòng lặp
+        var pendingCommands = new List<ExecutePluginCommand>();
+
         foreach (var startNodeId in startNodeIds)
         {
+            var pointerId = Guid.NewGuid();
             // Mỗi start node sẽ chạy song song như một nhánh độc lập (branchId riêng)
             var pointer = new ExecutionPointer(
                 instanceId: instance.Id,
@@ -70,10 +74,11 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
             await _pointerRepo.AddPointerAsync(pointer);
 
-            //await _uow.SaveChangesAsync(); // Phải Save để có PointerId trước khi Dispatch, vì Worker cần PointerId để lease
-
-            // Dispatch vào Outbox RAM
-            await _dispatcher.DispatchAsync(instance, pointer, def.DefinitionJson);
+            var command = await _dispatcher.CreateDispatchCommand(instance, pointer, def.DefinitionJson);
+            if (command != null)
+            {
+                pendingCommands.Add(command);
+            }
         }
 
         // 4. Lưu DB (Atomic) chốt hạ tất cả Pointers và Messages cùng lúc
@@ -88,6 +93,14 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             Level: Domain.Enums.LogLevel.Information,
             NodeId: "System" // Log chung của hệ thống
         ));
+
+        // update: Sau khi có InstanceId rồi thì mới publish lệnh ExecutePluginCommand để Worker chạy, tránh tình trạng Worker nhận được message mà DB chưa kịp lưu nên không tìm thấy dữ liệu.
+        var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
+        foreach (var cmd in pendingCommands)
+        {
+            await _publishEndpoint.Publish(cmd, ctx => ctx.SetRoutingKey(routingKey));
+        }
+
         return Result.Success(instance.Id);
     }
 
@@ -183,6 +196,8 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
             await _uow.SaveChangesAsync();
 
+            var pendingCommandsToPublish = new List<ExecutePluginCommand>();
+
             // 5. Giải quyết các tụ điểm Join
             foreach (var joinNodeId in joinNodesToCheck)
             {
@@ -191,21 +206,27 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
                 if (joinResult.IsBarrierBroken && joinResult.PointerToDispatch != null)
                 {
-                    await _dispatcher.DispatchAsync(instance, joinResult.PointerToDispatch, def.DefinitionJson);
+                    var cmd = await _dispatcher.CreateDispatchCommand(instance, joinResult.PointerToDispatch, def.DefinitionJson);
+                    if (cmd != null) pendingCommandsToPublish.Add(cmd);
                 }
             }
 
             // 6. Gửi lệnh các đường thẳng/rẽ nhánh bình thường
             foreach (var p in pointersToDispatch)
             {
-                await _dispatcher.DispatchAsync(instance, p, def.DefinitionJson);
+                var cmd = await _dispatcher.CreateDispatchCommand(instance, p, def.DefinitionJson);
+                if (cmd != null) pendingCommandsToPublish.Add(cmd);
             }
 
-            // 👉 [GIẢI QUYẾT DỨT ĐIỂM] LẦN SAVE THỨ 2: CHỐT OUTBOX VÀ ĐẨY EVENT
-            // Lệnh DispatchAsync ở vòng lặp trên chưa gửi RabbitMQ ngay, nó chỉ đưa vào Outbox EF Core (Tracking).
-            // Lần Save này sẽ chốt Transaction Outbox và thực sự kích hoạt MassTransit gửi message đi.
-            // (Lần save này rất nhẹ vì Business data đã được save ở Lần 1 rồi).
             await _uow.SaveChangesAsync();
+
+            // 7. BÂY GIỜ MỚI KÍCH HOẠT MASSTRANSIT PUBLISH
+            var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
+            foreach (var cmd in pendingCommandsToPublish)
+            {
+                await _publishEndpoint.Publish(cmd, ctx => ctx.SetRoutingKey(routingKey));
+            }
+
         }
 
         // ONE SAVE TO RULE THEM ALL
@@ -251,13 +272,16 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 maxRetries = parsedRetries;
             }
 
+            ExecutePluginCommand? retryCommandToPublish = null;
+            List<CompensatePluginCommand> compensateCommandsToPublish = new();
+
             if (pointer.RetryCount < maxRetries)
             {
                 _logger.LogInformation("Retrying Step {StepId}...", pointer.StepId);
 
                 pointer.ResetToPending();
                 await _uow.SaveChangesAsync();
-                await _dispatcher.DispatchAsync(instance, pointer, def.DefinitionJson);
+                retryCommandToPublish = await _dispatcher.CreateDispatchCommand(instance, pointer, def.DefinitionJson);
             }
             else
             {
@@ -279,7 +303,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 _contextManager.MergeStepOutput(instance, pointer.StepId, errorDoc);
 
                 // call SERVICE XỬ LÝ SAGA
-                await _compensationService.TriggerCompensationAsync(instance, def!.DefinitionJson);
+                compensateCommandsToPublish = await _compensationService.TriggerCompensationAsync(instance, def!.DefinitionJson);
             }
 
             // Tương lai: Cần thêm logic để track xem khi nào tất cả lệnh Compensate chạy xong thì mới đổi status thành Compensated.
@@ -287,6 +311,22 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
             // ONE SAVE TO RULE THEM ALL
             await _uow.SaveChangesAsync();
+
+            if (retryCommandToPublish != null)
+            {
+                var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
+                await _publishEndpoint.Publish(retryCommandToPublish, ctx => ctx.SetRoutingKey(routingKey));
+            }
+
+            if (compensateCommandsToPublish.Any())
+            {
+                var compRoutingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}compensate";
+                foreach (var cmd in compensateCommandsToPublish)
+                {
+                    await _publishEndpoint.Publish(cmd, ctx => ctx.SetRoutingKey(compRoutingKey));
+                }
+            }
+
             return Result.Success();
         }
         catch (Exception ex)
@@ -301,7 +341,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     {
         _logger.LogInformation("⏰ Attempting to RESUME Pointer {PointerId}...", pointerId);
 
-        // 1. Lấy Pointer từ DB
+        // Lấy Pointer từ DB
         var pointer = await _pointerRepo.GetPointerByIdAsync(pointerId);
         if (pointer == null)
             return Result.Failure(Error.NotFound("Pointer.NotFound", "Execution Pointer not found."));
@@ -312,10 +352,10 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (pointer.Status != ExecutionPointerStatus.WaitingForEvent)
         {
             _logger.LogWarning("[IDEMPOTENCY] Pointer {Id} is in status {Status}. Resume rejected.", pointer.Id, pointer.Status);
-            return Result.Success(); // Trả về Success để UI/API không báo lỗi đỏ, nhưng thực chất là bỏ qua lệnh này
+            return Result.Success(); 
         }
 
-        // 2. Lấy Instance chuẩn xác qua Repository
+        // Lấy Instance chuẩn xác qua Repository
         var instance = await _instanceRepo.GetInstanceByIdAsync(pointer.InstanceId);
         if (instance == null || instance.Status != WorkflowInstanceStatus.Running)
             return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not running."));
@@ -334,15 +374,12 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // Đổi trạng thái sang Pending để đánh lừa luồng HandleStepCompletionAsync phía sau 
         // hiểu rằng Node này vừa được "Worker" chạy xong
 
-
-
         ///pointer.ResetToPending();
 
-        // KHÔNG GỌI _uow.SaveChangesAsync() Ở ĐÂY!
-        // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
-        // Như vậy hệ thống mới đảm bảo tính Atomic 100%.
 
-        // 3. Tái sử dụng logic điều hướng chuẩn của Engine
+        // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
+        // Như vậy hệ thống mới đảm bảo tính Atomic .
+        // Tái sử dụng logic điều hướng chuẩn của Engine
         return await HandleStepCompletionAsync(instance.Id, pointer.Id, resumeData);
     }
 
