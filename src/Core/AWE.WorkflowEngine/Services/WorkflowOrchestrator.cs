@@ -1,9 +1,12 @@
 ﻿using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
+using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 using AWE.WorkflowEngine.Interfaces;
+using MassTransit;
+using MassTransit.Transports;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -17,6 +20,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     IJoinBarrierService joinService,
     IPointerDispatcher dispatcher,
     IWorkflowCompensationService compensationService,
+    IPublishEndpoint publishEndpoint,
     ILogger<WorkflowOrchestrator> logger) : IWorkflowOrchestrator
 {
     private readonly IUnitOfWork _uow = uow;
@@ -29,6 +33,8 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     private readonly IJoinBarrierService _joinService = joinService;
     private readonly IPointerDispatcher _dispatcher = dispatcher;
     private readonly IWorkflowCompensationService _compensationService = compensationService;
+
+    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
 
     private readonly ILogger<WorkflowOrchestrator> _logger = logger;
 
@@ -71,7 +77,15 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // 4. Lưu DB (Atomic) chốt hạ tất cả Pointers và Messages cùng lúc
         await _uow.SaveChangesAsync();
 
-        _logger.LogInformation("🚀 Started Job '{Name}' (ID: {Id}) with {Count} Start Nodes.", jobName, instance.Id, startNodeIds.Count);
+        // 5. Ghi log bắt đầu Workflow
+        _logger.LogInformation("Started Job '{Name}' (ID: {Id}) with {Count} Start Nodes.", jobName, instance.Id, startNodeIds.Count);
+        await _publishEndpoint.Publish(new WriteAuditLogCommand(
+            InstanceId: instance.Id,
+            Event: "WorkflowStarted",
+            Message: $"Bắt đầu thực thi Workflow: {jobName}",
+            Level: Domain.Enums.LogLevel.Information,
+            NodeId: "System" // Log chung của hệ thống
+        ));
         return Result.Success(instance.Id);
     }
 
@@ -88,14 +102,14 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         //    return Result.Success();
         if (pointer.Routed)
         {
-            _logger.LogInformation("ℹ️ Pointer {Id} already routed. Ignoring duplicate event.", pointer.Id);
+            _logger.LogInformation("Pointer {Id} already routed. Ignoring duplicate event.", pointer.Id);
             return Result.Success();
         }
 
         // 2. Hoàn thành Node và Merge Data
         //pointer.Complete("Engine", eventOutput); // Gọi hàm chuẩn của Entity
         _contextManager.MergeStepOutput(instance, pointer.StepId, eventOutput);
-       
+
 
         var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
 
@@ -106,7 +120,14 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         {
             // Kết thúc Workflow
             // instance.MarkAsCompleted(); 
-            _logger.LogInformation("🏁 Workflow {Id} Completed successfully.", instanceId);
+            _logger.LogInformation("Workflow {Id} Completed successfully.", instanceId);
+            await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                InstanceId: instance.Id,
+                Event: "WorkflowCompleted",
+                Message: "Quy trình đã hoàn thành xuất sắc toàn bộ các bước.",
+                Level: Domain.Enums.LogLevel.Information,
+                NodeId: "System"
+            ));
         }
         else
         {
@@ -224,6 +245,15 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             {
                 _logger.LogError("Step {StepId} failed permanently. Triggering Compensation.", pointer.StepId);
 
+                await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                    InstanceId: instanceId,
+                    Event: "WorkflowFailed",
+                    Message: $"Node {pointer.StepId} đã thất bại vĩnh viễn sau {maxRetries} lần thử. Đang kích hoạt Rollback.",
+                    Level: Domain.Enums.LogLevel.Error,
+                    ExecutionPointerId: pointerId,
+                    NodeId: pointer.StepId,
+                    MetadataJson: errorDoc.RootElement.GetRawText() // Bơm chi tiết lỗi vào đây để UI vẽ ra
+                ));
                 // Đánh dấu Node và Workflow Failed
                 //pointer.MarkAsFailed("Engine", errorDoc);
                 pointer.MarkAsRouted();

@@ -8,7 +8,6 @@ using AWE.Sdk;
 using AWE.Shared.Consts;
 using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
-using Microsoft.Extensions.Logging;
 
 namespace AWE.Worker;
 
@@ -45,10 +44,18 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
     {
         var cmd = context.Message;
         _logger.LogInformation("🛠️ [{Worker}] START Step {Node} ({Type})", _workerId, cmd.NodeId, cmd.StepType);
+        // 1. LOG: Node bắt đầu chạy
+        await context.Publish(new WriteAuditLogCommand(
+            InstanceId: cmd.InstanceId,
+            Event: "StepStarted",
+            Message: $"Bắt đầu thực thi Node: {cmd.NodeId}",
+            Level: Domain.Enums.LogLevel.Information,
+            //ExecutionPointerId: cmd.PointerId,
+            NodeId: cmd.NodeId,
+            WorkerId: Environment.MachineName
+        ));
 
-        // =================================================================
-        // 1. IDEMPOTENCY CHECK
-        // =================================================================
+        // IDEMPOTENCY CHECK
         var pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId);
 
         if (pointer == null)
@@ -71,15 +78,11 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
 
         try
         {
-            // =================================================================
-            // 2. ACQUIRE LEASE
-            // =================================================================
+            // ACQUIRE LEASE
             if (!pointer.TryAcquireLease(_workerId, TimeSpan.FromMinutes(5))) return;
             await _uow.SaveChangesAsync();
 
-            // =================================================================
             // DYNAMIC ROUTER: Phân luồng thực thi (Hybrid Architecture)
-            // =================================================================
             PluginResult pluginResult;
             var pluginContext = new PluginContext(cmd.Payload, context.CancellationToken);
 
@@ -106,9 +109,7 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 throw new Exception(pluginResult.ErrorMessage ?? "Plugin failed without message.");
             }
 
-            // =================================================================
             // PERSISTENCE & OUTBOX EVENT
-            // =================================================================
             var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
             pointer.Complete(_workerId, outputDoc);
 
@@ -120,11 +121,33 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             await _uow.SaveChangesAsync(); // Double-Save: Lưu Entity + Outbox Message
 
             _logger.LogInformation("✅ [{Worker}] Step {Node} Completed.", _workerId, cmd.NodeId);
+
+            await context.Publish(new WriteAuditLogCommand(
+                InstanceId: cmd.InstanceId,
+                Event: "StepCompleted",
+                Message: $"Node {cmd.NodeId} hoàn thành thành công.",
+                Level: Domain.Enums.LogLevel.Information,
+                ExecutionPointerId: cmd.ExecutionPointerId,
+                NodeId: cmd.NodeId,
+                WorkerId: Environment.MachineName,
+                MetadataJson: JsonSerializer.Serialize(outputDoc) 
+            ));
+
             await cts.CancelAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "🔥 [{Worker}] Error on Step {Node}", _workerId, cmd.NodeId);
+            await context.Publish(new WriteAuditLogCommand(
+                InstanceId: cmd.InstanceId,
+                Event: "StepError",
+                Message: $"Lỗi khi thực thi Node: {ex.Message}",
+                Level: Domain.Enums.LogLevel.Error,
+                ExecutionPointerId: cmd.ExecutionPointerId,
+                NodeId: cmd.NodeId,
+                WorkerId: Environment.MachineName,
+                MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString() })
+            ));
             await HandleFailureAsync(pointer, cmd, ex.Message, context);
             await cts.CancelAsync();
             //throw;
@@ -134,51 +157,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             try { await heartbeatTask; } catch (OperationCanceledException) { }
         }
     }
-
-    /// <summary>
-    /// Hàm giả lập Logic của Plugin để test luồng Engine
-    /// </summary>
-    //private async Task<Dictionary<string, object>> ExecuteInternalLogicAsync(string stepType, string payloadJson, CancellationToken ct)
-    //{
-    //    // Giả lập độ trễ xử lý (như đang chạy plugin thật)
-    //    await Task.Delay(500, ct);
-
-    //    var inputs = string.IsNullOrEmpty(payloadJson)
-    //        ? new Dictionary<string, object>()
-    //        : JsonSerializer.Deserialize<Dictionary<string, object>>(payloadJson) ?? new();
-
-    //    // Xử lý cứng dựa trên StepType (Dispatcher)
-    //    return stepType switch
-    //    {
-    //        "HttpRequest" => new Dictionary<string, object>
-    //        {
-    //            { "Status", 200 },
-    //            { "Body", "{\"message\": \"Fake API Response\"}" },
-    //            { "Time", DateTime.UtcNow }
-    //        },
-
-    //        "Log" => new Dictionary<string, object>
-    //        {
-    //            { "LogStatus", "Written to Console" }
-    //        },
-
-    //        "Delay" => new Dictionary<string, object>
-    //        {
-    //            { "Waited", "500ms" }
-    //        },
-    //        "CrashTest" => await RunCrashTestAsync(ct),
-    //        "SagaTest" => throw new Exception("BÙM! Giả lập lỗi hệ thống để test Rollback!"),
-    //        "Join" => new Dictionary<string, object>
-    //        {
-    //            { "JoinStatus", "Barrier Passed successfully" }
-    //        },
-            
-
-
-    //        // Nếu gặp loại chưa định nghĩa -> Lỗi
-    //        _ => throw new NotImplementedException($"Internal Plugin '{stepType}' not implemented yet.")
-    //    };
-    //}
 
     private async Task HandleFailureAsync(ExecutionPointer pointer, ExecutePluginCommand cmd, string errorMsg, ConsumeContext context)
     {
@@ -225,31 +203,5 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 _logger.LogWarning("⚠️ Heartbeat failed: {Message}", ex.Message);
             }
         }
-    }
-
-    /// <summary>
-    /// test for hearbeat Leasing, Recovery
-    /// </summary>
-    private async Task<Dictionary<string, object>> RunCrashTestAsync(CancellationToken ct)
-    {
-        _logger.LogWarning("💀 [TEST] Starting CrashTest plugin. I will sleep for 2 minutes.");
-        _logger.LogWarning("👉 NOW IS THE TIME TO KILL THIS WORKER PROCESS TO TEST RECOVERY!");
-
-        // Giả lập tác vụ chạy rất lâu (2 phút)
-        // Trong thời gian này, Heartbeat sẽ chạy mỗi 10s.
-        // Nếu bạn Kill Process lúc này, Heartbeat sẽ tắt -> Lease hết hạn.
-        for (int i = 0; i < 3; i++) // 3 * 5s = 15s
-        {
-            if (ct.IsCancellationRequested) break;
-
-            await Task.Delay(5000, ct);
-            _logger.LogInformation("⏳ [TEST] Working... ({Seconds}s elapsed)", (i + 1) * 5);
-        }
-
-        return new Dictionary<string, object>
-    {
-        { "Result", "I survived!" },
-        { "Status", "Success" }
-    };
     }
 }
