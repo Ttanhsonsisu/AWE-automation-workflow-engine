@@ -4,8 +4,6 @@ using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
-using AWE.Shared.Consts;
-using MassTransit;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;

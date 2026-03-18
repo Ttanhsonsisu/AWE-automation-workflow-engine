@@ -9,9 +9,8 @@ using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
 
-public class PointerDispatcher(IPublishEndpoint publishEndpoint, IVariableResolver resolver, ILogger<PointerDispatcher> logger) : IPointerDispatcher
+public class PointerDispatcher(IVariableResolver resolver, ILogger<PointerDispatcher> logger) : IPointerDispatcher
 {
-    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
     private readonly IVariableResolver _resolver = resolver;
     private readonly ILogger<PointerDispatcher> _logger = logger;
 

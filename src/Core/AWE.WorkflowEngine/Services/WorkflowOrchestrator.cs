@@ -7,7 +7,6 @@ using AWE.Domain.Enums;
 using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using MassTransit;
-using MassTransit.Transports;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -342,7 +341,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
     {
         _logger.LogInformation("⏰ Attempting to RESUME Pointer {PointerId}...", pointerId);
 
-        // 1. Lấy Pointer từ DB
+        // Lấy Pointer từ DB
         var pointer = await _pointerRepo.GetPointerByIdAsync(pointerId);
         if (pointer == null)
             return Result.Failure(Error.NotFound("Pointer.NotFound", "Execution Pointer not found."));
@@ -353,10 +352,10 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (pointer.Status != ExecutionPointerStatus.WaitingForEvent)
         {
             _logger.LogWarning("[IDEMPOTENCY] Pointer {Id} is in status {Status}. Resume rejected.", pointer.Id, pointer.Status);
-            return Result.Success(); // Trả về Success để UI/API không báo lỗi đỏ, nhưng thực chất là bỏ qua lệnh này
+            return Result.Success(); 
         }
 
-        // 2. Lấy Instance chuẩn xác qua Repository
+        // Lấy Instance chuẩn xác qua Repository
         var instance = await _instanceRepo.GetInstanceByIdAsync(pointer.InstanceId);
         if (instance == null || instance.Status != WorkflowInstanceStatus.Running)
             return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not running."));
@@ -377,11 +376,10 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         ///pointer.ResetToPending();
 
-        // KHÔNG GỌI _uow.SaveChangesAsync() Ở ĐÂY!
-        // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
-        // Như vậy hệ thống mới đảm bảo tính Atomic 100%.
 
-        // 3. Tái sử dụng logic điều hướng chuẩn của Engine
+        // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
+        // Như vậy hệ thống mới đảm bảo tính Atomic .
+        // Tái sử dụng logic điều hướng chuẩn của Engine
         return await HandleStepCompletionAsync(instance.Id, pointer.Id, resumeData);
     }
 
