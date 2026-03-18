@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 
-namespace AWE.WorkflowEngine.Interfaces;
+namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface ITransitionEvaluator
 {

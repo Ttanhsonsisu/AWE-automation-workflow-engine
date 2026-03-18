@@ -1,11 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.Json;
+﻿using System.Text.Json;
 using AWE.Domain.Entities;
 using AWE.Shared.Primitives;
 
-namespace AWE.WorkflowEngine.Interfaces;
+namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface IWorkflowContextManager
 {

@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
+using AWE.Application.Abstractions.CoreEngine;
 using AWE.Shared.Primitives;
-using AWE.WorkflowEngine.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;

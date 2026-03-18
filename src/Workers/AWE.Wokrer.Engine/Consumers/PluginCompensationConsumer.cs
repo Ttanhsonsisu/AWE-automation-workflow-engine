@@ -1,6 +1,6 @@
-﻿using AWE.Contracts.Messages;
+﻿using AWE.Application.Abstractions.CoreEngine;
+using AWE.Contracts.Messages;
 using AWE.Sdk;
-using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 using Microsoft.Win32;
 

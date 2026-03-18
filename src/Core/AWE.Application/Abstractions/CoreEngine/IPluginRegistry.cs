@@ -1,6 +1,6 @@
 ﻿using AWE.Sdk;
 
-namespace AWE.WorkflowEngine.Interfaces;
+namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface IPluginRegistry
 {

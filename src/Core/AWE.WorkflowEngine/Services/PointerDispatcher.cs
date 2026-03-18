@@ -1,9 +1,9 @@
 ﻿using System.Text.Json;
+using AWE.Application.Abstractions.CoreEngine;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Shared.Consts;
-using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 using Microsoft.Extensions.Logging;
 

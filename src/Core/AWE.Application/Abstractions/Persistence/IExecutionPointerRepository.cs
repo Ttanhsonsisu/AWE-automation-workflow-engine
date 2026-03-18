@@ -45,4 +45,6 @@ public interface IExecutionPointerRepository
 
     // Dành cho Delay Wake-up Service: Tìm các Pointer đang ngủ mà đã đến giờ đánh thức
     Task<List<ExecutionPointer>> GetExpiredWaitingForEventAsync(DateTime now, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ExecutionPointer>> GetPointersByInstanceIdAsync(Guid instanceId, CancellationToken cancellationToken = default);
 }

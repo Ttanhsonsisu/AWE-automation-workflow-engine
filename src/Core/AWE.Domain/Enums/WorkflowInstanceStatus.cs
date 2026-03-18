@@ -33,5 +33,10 @@ public enum WorkflowInstanceStatus
     /// <summary>
     /// Workflow compensation completed
     /// </summary>
-    Compensated
+    Compensated,
+
+    /// <summary>
+    /// Workflow was canceled before completion 
+    /// </summary>
+    Cancelled
 }

@@ -1,5 +1,5 @@
 ﻿using System.Text.Json;
-using AWE.WorkflowEngine.Interfaces;
+using AWE.Application.Abstractions.CoreEngine;
 using Jint;
 using Microsoft.Extensions.Logging;
 

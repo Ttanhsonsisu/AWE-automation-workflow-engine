@@ -1,7 +1,6 @@
 ﻿using AWE.Domain.Entities;
-using AWE.WorkflowEngine.Objects;
 
-namespace AWE.WorkflowEngine.Interfaces;
+namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface IJoinBarrierService
 {
