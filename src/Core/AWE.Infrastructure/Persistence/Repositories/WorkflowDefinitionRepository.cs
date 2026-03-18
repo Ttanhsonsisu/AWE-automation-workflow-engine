@@ -53,11 +53,29 @@ public class WorkflowDefinitionRepository(ApplicationDbContext _context) : IWork
         await _context.WorkflowDefinitions.AddAsync(definition, cancellationToken);
     }
 
+    public async Task<WorkflowDefinition?> GetLatestVersionByNameAsync(string name, CancellationToken cancellationToken = default)
+    {
+        return await _context.WorkflowDefinitions
+            .AsNoTracking()
+            .Where(x => x.Name == name)
+            .OrderByDescending(x => x.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task UpdateDefinitionAsync(
         WorkflowDefinition definition,
         CancellationToken cancellationToken = default)
     {
         _context.WorkflowDefinitions.Update(definition);
         return Task.CompletedTask;
+    }
+
+    public async Task DeleteDefinitionAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var definition = await _context.WorkflowDefinitions.FindAsync(new object[] { id }, cancellationToken);
+        if (definition != null)
+        {
+            _context.WorkflowDefinitions.Remove(definition);
+        }
     }
 }

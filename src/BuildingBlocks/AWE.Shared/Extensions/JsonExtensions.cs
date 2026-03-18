@@ -131,7 +131,7 @@ public static class JsonExtensions
         if (document == null)
             throw new ArgumentNullException(nameof(document));
 
-        return JsonDocument.Parse(document.RootElement.ToString());
+        return JsonDocument.Parse(document.RootElement.GetRawText());
     }
 
     /// <summary>

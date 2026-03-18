@@ -13,7 +13,11 @@ public abstract class ApiController : ControllerBase
     {
         if (result.IsSuccess)
         {
-            return Ok(result.Value);
+            return Ok(new
+            {
+                success = true,
+                data = result.Value
+            });
         }
 
         return HandleFailure(result.Error!);

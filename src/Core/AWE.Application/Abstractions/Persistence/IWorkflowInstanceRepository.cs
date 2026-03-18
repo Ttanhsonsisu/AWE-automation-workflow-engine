@@ -8,6 +8,7 @@ public interface IWorkflowInstanceRepository
     Task<WorkflowInstance?> GetInstanceByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<WorkflowInstance?> GetInstanceWithPointersAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<WorkflowInstance>> GetInstancesByStatusAsync(WorkflowInstanceStatus status, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<WorkflowInstance>> GetInstancesAsync(int page = 1, int size = 10, CancellationToken cancellationToken = default);
     Task AddInstanceAsync(WorkflowInstance instance, CancellationToken cancellationToken = default);
     Task UpdateInstanceAsync(WorkflowInstance instance, CancellationToken cancellationToken = default);
 }

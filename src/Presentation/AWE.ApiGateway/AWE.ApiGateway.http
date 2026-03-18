@@ -1,6 +1,34 @@
-@AWE.ApiGateway_HostAddress = http://localhost:5192
+﻿@AWE.ApiGateway_HostAddress = http://localhost:5192
 
 GET {{AWE.ApiGateway_HostAddress}}/weatherforecast/
 Accept: application/json
+
+###
+
+# ================= EXECUTION MANAGEMENT =================
+
+### Get Paged List of Executions
+GET {{AWE.ApiGateway_HostAddress}}/api/executions?page=1&size=10
+Accept: application/json
+
+### Get specific Execution Details (with Pointers)
+GET {{AWE.ApiGateway_HostAddress}}/api/executions/YOUR_EXECUTION_ID_HERE
+Accept: application/json
+
+### Get Logs for an Execution
+GET {{AWE.ApiGateway_HostAddress}}/api/executions/YOUR_EXECUTION_ID_HERE/logs
+Accept: application/json
+
+### Suspend an Execution
+POST {{AWE.ApiGateway_HostAddress}}/api/executions/YOUR_EXECUTION_ID_HERE/suspend
+Content-Type: application/json
+
+### Resume an Execution
+POST {{AWE.ApiGateway_HostAddress}}/api/executions/YOUR_EXECUTION_ID_HERE/resume
+Content-Type: application/json
+
+### Retry an Execution (Re-submit failed execution using identical inputs)
+POST {{AWE.ApiGateway_HostAddress}}/api/executions/YOUR_EXECUTION_ID_HERE/retry
+Content-Type: application/json
 
 ###

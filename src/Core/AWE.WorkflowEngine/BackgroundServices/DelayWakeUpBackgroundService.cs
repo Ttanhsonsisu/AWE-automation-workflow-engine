@@ -15,7 +15,7 @@ public class DelayWakeUpBackgroundService(IServiceProvider serviceProvider, ILog
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("⏰ Delay Wake-up Service started.");
+        _logger.LogInformation("Delay Wake-up Service started.");
 
         // Cứ 10 giây quét Database 1 lần
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
@@ -37,7 +37,7 @@ public class DelayWakeUpBackgroundService(IServiceProvider serviceProvider, ILog
 
                 foreach (var pointer in expiredPointers)
                 {
-                    _logger.LogInformation("🔔 Time's up! Waking up Pointer {PointerId}", pointer.Id);
+                    _logger.LogInformation("Time's up! Waking up Pointer {PointerId}", pointer.Id);
 
                     // Xóa báo thức để tránh đánh thức lại lần sau
                     //pointer.ResumeAt = null;

@@ -71,4 +71,14 @@ public class WorkflowDefinition : AuditableEntity
         IsPublished = false;
         MarkAsUpdated();
     }
+
+    public void UpdateContent(JsonDocument definitionJson, JsonDocument? uiJson = null)
+    {
+        if (IsPublished)
+            throw new InvalidOperationException("Cannot update a published workflow directly. Create a new version instead.");
+
+        DefinitionJson = definitionJson ?? throw new ArgumentNullException(nameof(definitionJson));
+        UiJson = uiJson ?? JsonDocument.Parse("{}");
+        MarkAsUpdated();
+    }
 }

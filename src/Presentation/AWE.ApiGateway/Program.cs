@@ -1,4 +1,5 @@
 ﻿using AWE.Infrastructure;
+using AWE.Application;
 using AWE.ServiceDefaults.Extensions;
 using AWE.WorkflowEngine;
 
@@ -26,6 +27,9 @@ builder.Services.AddAweMessaging(builder.Configuration);
 // add service engine
 builder.Services.AddWorkflowEngineService();
 
+// Register application layer services
+builder.Services.AddAweApplication();
+
 // Register object storage
 //builder.Services.AddAweObjectStorage(builder.Configuration);
 
@@ -34,7 +38,11 @@ builder.Services.AddWorkflowEngineService();
 // Web API configuration
 // ------------------------------------------------------------
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.Encoder =
+            System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+});
 
 // Register OpenAPI for development and testing
 builder.Services.AddOpenApi();
