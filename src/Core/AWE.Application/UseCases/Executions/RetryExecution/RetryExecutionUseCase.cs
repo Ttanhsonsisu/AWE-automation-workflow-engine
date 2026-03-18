@@ -1,6 +1,10 @@
 ﻿using AWE.Application.Abstractions.CoreEngine;
 using AWE.Application.Abstractions.Persistence;
+using AWE.Contracts.Messages;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
+using MassTransit;
+using MassTransit.Transports;
 
 namespace AWE.Application.UseCases.Executions.RetryExecution;
 
@@ -19,13 +23,15 @@ public class RetryExecutionUseCase(
     IExecutionPointerRepository pointerRepo,
     IWorkflowDefinitionRepository defRepo,
     IPointerDispatcher dispatcher,
-    IUnitOfWork uow) : IRetryExecutionUseCase
+    IUnitOfWork uow,
+    IPublishEndpoint publishEndpoint) : IRetryExecutionUseCase
 {
     private readonly IWorkflowInstanceRepository _instanceRepo = instanceRepo;
     private readonly IExecutionPointerRepository _pointerRepo = pointerRepo;
     private readonly IWorkflowDefinitionRepository _defRepo = defRepo;
     private readonly IPointerDispatcher _dispatcher = dispatcher;
     private readonly IUnitOfWork _uow = uow;
+    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
 
     public async Task<Result> ExecuteAsync(RetryExecutionRequest request, CancellationToken ct = default)
     {
@@ -51,15 +57,25 @@ public class RetryExecutionUseCase(
         // 2. Cập nhật lại trạng thái Instance
         instance.Status = Domain.Enums.WorkflowInstanceStatus.Running;
 
+        var pendingCommands = new List<ExecutePluginCommand>();
+
         // 3. Reset các Node lỗi và đẩy lại vào Message Broker
         foreach (var pointer in failedPointers)
         {
             pointer.ResetToPending(); // Hàm bạn đã viết trong Entity (reset Status, RetryCount)
-            await _dispatcher.DispatchAsync(instance, pointer, def!.DefinitionJson);
+            var command = await _dispatcher.CreateDispatchCommand(instance, pointer, def!.DefinitionJson);
+            if (command != null) pendingCommands.Add(command);
         }
 
-        // 4. Lưu DB (Atomic)
+        // LƯU DATABASE TRƯỚC (Đổi state từ Failed -> Pending trên ổ cứng)
         await _uow.SaveChangesAsync(ct);
+
+        // BÂY GIỜ MỚI BẮN LÊN RABBITMQ
+        var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
+        foreach (var cmd in pendingCommands)
+        {
+            await _publishEndpoint.Publish(cmd, ctx => ctx.SetRoutingKey(routingKey), ct);
+        }
 
         return Result.Success();
     }
