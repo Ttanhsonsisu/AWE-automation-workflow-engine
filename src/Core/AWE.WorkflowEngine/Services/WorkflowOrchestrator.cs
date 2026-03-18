@@ -106,6 +106,13 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             return Result.Success();
         }
 
+        // Kiểm tra trạng thái Workflow Instance, nếu đang Suspended thì không tiếp tục điều hướng nữa
+        if (instance.Status == WorkflowInstanceStatus.Suspended)
+        {
+            _logger.LogInformation("Workflow {Id} is SUSPENDED. Halting routing at Step {StepId}.", instance.Id, pointer.StepId);
+            return Result.Success();
+        }
+
         // 2. Hoàn thành Node và Merge Data
         //pointer.Complete("Engine", eventOutput); // Gọi hàm chuẩn của Entity
         _contextManager.MergeStepOutput(instance, pointer.StepId, eventOutput);
