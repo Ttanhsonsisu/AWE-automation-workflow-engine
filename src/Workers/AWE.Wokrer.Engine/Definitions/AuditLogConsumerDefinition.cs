@@ -1,7 +1,8 @@
 ﻿using AWE.Infrastructure.Extensions;
+using AWE.Wokrer.Engine.Consumers;
 using MassTransit;
 
-namespace AWE.WorkflowEngine.Consumers.Definitions;
+namespace AWE.Wokrer.Engine.Definitions;
 
 /// <summary>
 /// Consumer definition for audit log processing.

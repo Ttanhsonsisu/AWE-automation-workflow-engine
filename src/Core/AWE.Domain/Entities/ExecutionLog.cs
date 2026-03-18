@@ -48,6 +48,12 @@ public class ExecutionLog
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>
+    /// Identifier of the worker/machine that generated this log
+    /// </summary>
+    public string? WorkerId { get; private set; }
+
+
+    /// <summary>
     /// Navigation property
     /// </summary>
     public virtual WorkflowInstance Instance { get; private set; } = null!;
@@ -64,6 +70,7 @@ public class ExecutionLog
         LogLevel level = LogLevel.Information,
         Guid? executionPointerId = null,
         string? nodeId = null,
+        string? workerId = null,
         JsonDocument? metadata = null)
     {
         if (string.IsNullOrWhiteSpace(eventType))
@@ -76,6 +83,7 @@ public class ExecutionLog
         Level = level;
         Event = eventType;
         Metadata = metadata;
+        WorkerId = workerId;
         CreatedAt = DateTime.UtcNow;
     }
 }
