@@ -29,7 +29,6 @@ public static class DependencyInjection
     public static IServiceCollection AddAwePersistence(this IServiceCollection services, IConfiguration configuration)
     {
         // add redis
-
         services.AddSingleton<IConnectionMultiplexer>(sp =>
             ConnectionMultiplexer.Connect(configuration.GetConnectionString("Redis") ?? "localhost:6379"));
 
@@ -39,6 +38,14 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("postgres")
             ?? throw new InvalidOperationException("Connection string not found");
 
+        // add telegram notification service
+        services.Configure<TelegramNotificationConfig>(configuration.GetSection("TelegramNotificationConfig"));
+        var minioSettings = configuration.GetSection("TelegramNotificationConfig").Get<TelegramNotificationConfig>()
+            ?? new TelegramNotificationConfig
+            {
+                BotToken = "your_bot_token",
+                ChatID = "your_chat_id"
+            };
         services.AddDbContext<ApplicationDbContext>(options =>
         {
             options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -74,6 +81,7 @@ public static class DependencyInjection
         services.AddScoped<IStorageService, MinioStorageService>();
         services.AddScoped<IPluginValidator, PluginValidator>();
         services.AddScoped<IPluginService, PluginService>();
+        services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
         // Background service
         // TODO:
 
