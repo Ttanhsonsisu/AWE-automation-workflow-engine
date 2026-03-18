@@ -91,12 +91,26 @@ public record StepFailedEvent(
 /// Consumed by Audit service.
 /// Audit logging must not affect the main execution flow.
 /// </remarks>
+/// <summary>
+/// Lệnh ghi nhận lịch sử thực thi của Workflow.
+/// Được bắn từ Engine hoặc Worker qua RabbitMQ.
+/// </summary>
 public record WriteAuditLogCommand(
-    string Source,            // Originating service or component
-    string Action,            // Performed action (e.g. StepStarted, Error)
-    string Details,           // Action details (JSON or plain text)
-    DateTime Timestamp,       // Event occurrence time (UTC)
-    Guid? RelatedId           // Related workflow or step identifier
-);
+    Guid InstanceId,                // BẮT BUỘC: ID của luồng Workflow để gom nhóm log
+    string Event,                   // Sự kiện (VD: "StepStarted", "StepCompleted", "WorkflowFailed")
+    string Message,                 // Mô tả ngắn gọn (VD: "Node HTTP Request chạy thành công")
+    LogLevel Level = LogLevel.Information, // Mức độ (Error, Warning, Info)
+
+    Guid? ExecutionPointerId = null, // ID của Pointer (nếu log này thuộc về 1 bước cụ thể)
+    string? NodeId = null,           // Tên Step trên giao diện (VD: "Step_1_Start") - Rất quan trọng cho Frontend UI!
+    string? WorkerId = null,         // Tên máy chủ/container đã chạy (VD: "Worker-DEVNM-76d2")
+
+    string? MetadataJson = null,     // Chi tiết Input/Output hoặc mã lỗi (Lưu dạng chuỗi JSON)
+    DateTime? Timestamp = null       // Thời gian xảy ra (Nên set mặc định là UtcNow nếu null)
+)
+{
+    // Đảm bảo Timestamp luôn có giá trị nếu người gửi quên truyền
+    public DateTime OccurredOn => Timestamp ?? DateTime.UtcNow;
+}
 
 #endregion
