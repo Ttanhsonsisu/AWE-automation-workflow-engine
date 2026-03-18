@@ -1,8 +1,8 @@
 ﻿using System;
 
-namespace AWE.Application.UseCases.Workflows.CreateDefinition;
+namespace AWE.Application.UseCases.Workflows.CloneDefinition;
 
-public class CreateDefinitionResponse
+public class CloneDefinitionResponse
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;

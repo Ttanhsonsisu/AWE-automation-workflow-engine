@@ -35,4 +35,8 @@
     <ProjectReference Include="..\AWE.Sdk\AWE.Sdk.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Messaging\" />
+  </ItemGroup>
+
 </Project>

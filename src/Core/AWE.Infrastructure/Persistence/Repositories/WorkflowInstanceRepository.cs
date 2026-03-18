@@ -37,6 +37,19 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<WorkflowInstance>> GetInstancesAsync(
+        int page = 1,
+        int size = 10,
+        CancellationToken cancellationToken = default)
+    {
+         return await _context.WorkflowInstances
+             .AsNoTracking()
+             .OrderByDescending(x => x.CreatedAt)
+             .Skip((page - 1) * size)
+             .Take(size)
+             .ToListAsync(cancellationToken);
+    }
+
     public async Task AddInstanceAsync(
         WorkflowInstance instance,
         CancellationToken cancellationToken = default)
