@@ -1,4 +1,5 @@
-﻿using AWE.Application.UseCases.Executions.GetExecutionDetails;
+﻿using AWE.Application.UseCases.Executions.CancelExecution;
+using AWE.Application.UseCases.Executions.GetExecutionDetails;
 using AWE.Application.UseCases.Executions.GetExecutionLogs;
 using AWE.Application.UseCases.Executions.GetExecutions;
 using AWE.Application.UseCases.Executions.ResumeExecution;
@@ -74,6 +75,17 @@ public class ExecutionController : ApiController
         CancellationToken cancellationToken)
     {
         var request = new RetryExecutionRequest { InstanceId = id };
+        var result = await useCase.ExecuteAsync(request, cancellationToken);
+        return HandleResult(result);
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<IActionResult> CancelExecution(
+        Guid id,
+        [FromServices] ICancelExecutionUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        var request = new CancelExecutionRequest { InstanceId = id };
         var result = await useCase.ExecuteAsync(request, cancellationToken);
         return HandleResult(result);
     }

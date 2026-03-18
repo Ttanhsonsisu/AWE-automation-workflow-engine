@@ -1,8 +1,8 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Nodes;
+using AWE.Application.Abstractions.CoreEngine;
 using AWE.Domain.Entities;
 using AWE.Shared.Primitives;
-using AWE.WorkflowEngine.Interfaces;
 
 namespace AWE.WorkflowEngine.Services;
 

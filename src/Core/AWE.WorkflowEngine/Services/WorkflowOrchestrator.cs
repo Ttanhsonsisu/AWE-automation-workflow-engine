@@ -1,10 +1,10 @@
 ﻿using System.Text.Json;
+using AWE.Application.Abstractions.CoreEngine;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
-using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 using MassTransit.Transports;
 using Microsoft.Extensions.Logging;
@@ -110,6 +110,15 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (instance.Status == WorkflowInstanceStatus.Suspended)
         {
             _logger.LogInformation("Workflow {Id} is SUSPENDED. Halting routing at Step {StepId}.", instance.Id, pointer.StepId);
+            await _uow.SaveChangesAsync();
+            return Result.Success();
+        }
+
+        if (instance.Status == WorkflowInstanceStatus.Cancelled)
+        {
+            _logger.LogWarning("Workflow {Id} was CANCELLED. Halting routing permanently at Step {StepId}.", instance.Id, pointer.StepId);
+            pointer.MarkAsRouted();
+            await _uow.SaveChangesAsync();
             return Result.Success();
         }
 

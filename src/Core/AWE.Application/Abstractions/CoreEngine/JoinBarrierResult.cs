@@ -1,7 +1,6 @@
-﻿
-using AWE.Domain.Entities;
+﻿using AWE.Domain.Entities;
 
-namespace AWE.WorkflowEngine.Objects;
+namespace AWE.Application.Abstractions.CoreEngine;
 
 public record JoinBarrierResult(
 

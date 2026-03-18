@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.RegularExpressions;
-using AWE.WorkflowEngine.Interfaces;
+using AWE.Application.Abstractions.CoreEngine;
 
 namespace AWE.WorkflowEngine.Services;
 

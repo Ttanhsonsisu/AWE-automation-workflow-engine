@@ -1,7 +1,7 @@
-﻿using AWE.Sdk;
+﻿using AWE.Application.Abstractions.CoreEngine;
+using AWE.Sdk;
 using AWE.WorkflowEngine.BackgroundServices;
 using AWE.WorkflowEngine.BuiltInPlugins;
-using AWE.WorkflowEngine.Interfaces;
 using AWE.WorkflowEngine.Services;
 using Microsoft.Extensions.DependencyInjection;
 

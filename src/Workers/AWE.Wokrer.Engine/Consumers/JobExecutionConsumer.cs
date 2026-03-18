@@ -1,6 +1,6 @@
-﻿using AWE.Contracts.Messages;
+﻿using AWE.Application.Abstractions.CoreEngine;
+using AWE.Contracts.Messages;
 using AWE.Infrastructure.Extensions;
-using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 
 namespace AWE.Wokrer.Engine.Consumers;

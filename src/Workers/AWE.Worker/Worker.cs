@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using AWE.Application.Abstractions.CoreEngine;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
@@ -6,7 +7,6 @@ using AWE.Domain.Enums;
 using AWE.Infrastructure.Plugins;
 using AWE.Sdk;
 using AWE.Shared.Consts;
-using AWE.WorkflowEngine.Interfaces;
 using MassTransit;
 
 namespace AWE.Worker;

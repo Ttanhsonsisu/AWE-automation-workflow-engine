@@ -134,10 +134,23 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
 
     public Task<List<ExecutionPointer>> GetExpiredWaitingForEventAsync(DateTime now, CancellationToken cancellationToken = default)
     {
+        var runningInstanceIds = _context.WorkflowInstances
+            .Where(x => x.Status == WorkflowInstanceStatus.Running)
+            .Select(x => x.Id);
+
+        // 2. Lọc các Pointer đến giờ thức dậy VÀ phải thuộc về các luồng Running ở trên
         return _context.ExecutionPointers
             .Where(p => p.Status == ExecutionPointerStatus.WaitingForEvent
                      && p.ResumeAt.HasValue
-                     && p.ResumeAt.Value <= now)
+                     && p.ResumeAt.Value <= now
+                     && runningInstanceIds.Contains(p.InstanceId)) // EF Core sẽ dịch câu này thành INNER JOIN hoặc IN (...)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ExecutionPointer>> GetPointersByInstanceIdAsync(Guid instanceId, CancellationToken cancellationToken = default)
+    {
+        return await _context.ExecutionPointers
+            .Where(p => p.InstanceId == instanceId)
             .ToListAsync(cancellationToken);
     }
 }

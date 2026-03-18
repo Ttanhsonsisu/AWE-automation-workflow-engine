@@ -1,5 +1,5 @@
-﻿using AWE.Sdk;
-using AWE.WorkflowEngine.Interfaces;
+﻿using AWE.Application.Abstractions.CoreEngine;
+using AWE.Sdk;
 
 namespace AWE.WorkflowEngine.Services;
 

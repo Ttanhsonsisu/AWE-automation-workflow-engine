@@ -1,8 +1,7 @@
-﻿using AWE.Application.Abstractions.Persistence;
+﻿using AWE.Application.Abstractions.CoreEngine;
+using AWE.Application.Abstractions.Persistence;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
-using AWE.WorkflowEngine.Interfaces;
-using AWE.WorkflowEngine.Objects;
 using Medallion.Threading;
 using Microsoft.Extensions.Logging;
 
