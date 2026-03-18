@@ -12,4 +12,6 @@ public interface IWorkflowDefinitionRepository
     Task AddDefinitionAsync(WorkflowDefinition definition, CancellationToken cancellationToken = default);
     Task UpdateDefinitionAsync(WorkflowDefinition definition, CancellationToken cancellationToken = default);
     Task DeleteDefinitionAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<bool> ExistsDefinitionAsync(Guid id,CancellationToken cancellationToken = default);
 }

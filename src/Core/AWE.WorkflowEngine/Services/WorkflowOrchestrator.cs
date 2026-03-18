@@ -70,6 +70,8 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
             await _pointerRepo.AddPointerAsync(pointer);
 
+            //await _uow.SaveChangesAsync(); // Phải Save để có PointerId trước khi Dispatch, vì Worker cần PointerId để lease
+
             // Dispatch vào Outbox RAM
             await _dispatcher.DispatchAsync(instance, pointer, def.DefinitionJson);
         }

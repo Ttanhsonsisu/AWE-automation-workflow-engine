@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using AWE.Application.Abstractions.Persistence;
+﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Domain.Entities;
 using AWE.Shared.Primitives;
 

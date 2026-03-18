@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddScoped<IExecutionPointerRepository, ExecutionPointerRepository>();
         services.AddScoped<IPluginPackageRepository, PluginPackageRepository>();
         services.AddScoped<IPluginVersionRepository, PluginVersionRepository>();
+        services.AddScoped<IWorkflowScheduleRepository, WorkflowScheduleRepository>();
 
         // Service
         services.AddAweObjectStorage(configuration);

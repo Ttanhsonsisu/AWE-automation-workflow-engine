@@ -78,4 +78,9 @@ public class WorkflowDefinitionRepository(ApplicationDbContext _context) : IWork
             _context.WorkflowDefinitions.Remove(definition);
         }
     }
+
+    public async Task<bool> ExistsDefinitionAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.WorkflowDefinitions.AnyAsync(x => x.Id == id, cancellationToken);
+    }
 }

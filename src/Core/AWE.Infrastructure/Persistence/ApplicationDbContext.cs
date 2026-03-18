@@ -23,6 +23,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ExecutionLog> ExecutionLogs => Set<ExecutionLog>();
     public DbSet<PluginPackage> PluginPackages => Set<PluginPackage>();
     public DbSet<PluginVersion> PluginVersions => Set<PluginVersion>();
+    public DbSet<WorkflowSchedule> WorkflowSchedules => Set<WorkflowSchedule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
