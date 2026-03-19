@@ -20,11 +20,11 @@ public class TelegramAlertConsumer : IConsumer<WriteAuditLogCommand>
         var msg = context.Message;
 
         // Chỉ quan tâm đến các sự kiện lỗi nghiêm trọng (Workflow bị chết)
-        //if (msg.Level == Domain.Enums.LogLevel.Error && msg.Event == "WorkflowFailed")
-        //{
+        if (msg.Level == Domain.Enums.LogLevel.Error && msg.Event == "WorkflowFailed")
+        {
             _logger.LogInformation("🚨 Bắt được sự kiện lỗi! Đang gửi cảnh báo Telegram cho Instance {Id}", msg.InstanceId);
 
-            // Trang trí tin nhắn Telegram cho ngầu
+            // custom message format
             var alertMessage = $@"
                 🚨 <b>AWE SYSTEM ALERT</b> 🚨
                 <b>Tình trạng:</b> WORKFLOW THẤT BẠI VĨNH VIỄN ❌
@@ -39,6 +39,6 @@ public class TelegramAlertConsumer : IConsumer<WriteAuditLogCommand>
                 <i>Vui lòng truy cập hệ thống để kiểm tra và xử lý Saga (Rollback)!</i>
                 ";
             await _telegramService.SendAlertAsync(alertMessage);
-        //}
+        }
     }
 }
