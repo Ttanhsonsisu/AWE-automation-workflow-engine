@@ -1,163 +1,104 @@
-﻿using AWE.Sdk; 
+﻿using System.Runtime.CompilerServices;
+using AWE.Application.Services;
+using AWE.Sdk;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.Infrastructure.Plugins;
 
-public class PluginLoader(ILogger<PluginLoader> logger)
+public class PluginLoader(ILogger<PluginLoader> logger, IServiceProvider serviceProvider)
 {
     private readonly ILogger<PluginLoader> _logger = logger;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    //private readonly IStorageService _storageService = storageService;
 
-    // 1. Chạy tiến (Execute)
+
     public async Task<PluginResult> ExecutePluginAsync(string dllPath, string payload, CancellationToken ct)
     {
-        return await RunWithCleanupAsync(dllPath, payload, ct,
-            (plugin, ctx) => plugin.ExecuteAsync(ctx));
+        return await RunWithCleanupAsync(dllPath, payload, ct, isCompensation: false);
     }
 
-    // 2. Chạy lùi (Compensate)
     public async Task<PluginResult> CompensatePluginAsync(string dllPath, string payload, CancellationToken ct)
     {
-        return await RunWithCleanupAsync(dllPath, payload, ct,
-            (plugin, ctx) => plugin.CompensateAsync(ctx));
+        return await RunWithCleanupAsync(dllPath, payload, ct, isCompensation: true);
     }
 
-    // 3. Lõi xử lý ALC chung
-    private async Task<PluginResult> RunWithCleanupAsync(
-        string dllPath, string payload, CancellationToken ct,
-        Func<IWorkflowPlugin, PluginContext, Task<PluginResult>> action)
+    private async Task<PluginResult> RunWithCleanupAsync(string fileKey, string payload, CancellationToken ct, bool isCompensation)
     {
-        if (!File.Exists(dllPath)) return PluginResult.Failure($"DLL not found: {dllPath}");
+        // 1. Kéo DLL từ MinIO về ổ cứng local (Thư mục Temp)
+        string localDllPath = await DownloadDllToTempAsync(fileKey, ct);
+        if (localDllPath == null) return PluginResult.Failure($"Không thể tải Plugin DLL từ Storage: {fileKey}");
 
         WeakReference alcWeakRef;
         PluginResult result;
 
         try
         {
-            var loadContext = new PluginLoadContext(dllPath);
+            var loadContext = new PluginLoadContext(localDllPath);
             alcWeakRef = new WeakReference(loadContext);
 
-            try
-            {
-                var assembly = loadContext.LoadFromAssemblyPath(dllPath);
-                var pluginType = assembly.GetTypes()
-                    .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t) && !t.IsAbstract);
+            // 2. GỌI HÀM BỊ CÔ LẬP (Tránh Memory Leak của async state machine)
+            result = await ExecuteIsolatedAsync(loadContext, localDllPath, payload, isCompensation, ct);
 
-                if (pluginType == null) return PluginResult.Failure("Missing IWorkflowPlugin implementation.");
-                if (Activator.CreateInstance(pluginType) is not IWorkflowPlugin pluginInstance)
-                    return PluginResult.Failure("Failed to instantiate plugin.");
-
-                var pluginContext = new PluginContext(payload, ct);
-
-                // Gọi Delegate
-                result = await action(pluginInstance, pluginContext);
-            }
-            finally
-            {
-                loadContext.Unload();
-            }
+            // 3. UNLOAD NGAY LẬP TỨC
+            loadContext.Unload();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "🔥 Host Error executing plugin at {Path}", dllPath);
+            _logger.LogError(ex, "🔥 Host Error executing plugin at {Path}", localDllPath);
             return PluginResult.Failure($"Host Error: {ex.Message}");
         }
+        finally
+        {
+            // Xóa file temp cho sạch ổ cứng Worker
+            if (File.Exists(localDllPath)) File.Delete(localDllPath);
+        }
 
-        // Cleanup rác
+        // 4. Ép rác (GC) dọn dẹp ALC
         for (int i = 0; i < 10 && alcWeakRef.IsAlive; i++)
         {
             GC.Collect();
             GC.WaitForPendingFinalizers();
         }
 
-        if (alcWeakRef.IsAlive) _logger.LogWarning("Plugin ALC memory leak possible: {Path}", dllPath);
+        if (alcWeakRef.IsAlive) _logger.LogWarning("⚠️ ALC Memory Leak detected for: {Path}", localDllPath);
 
         return result;
     }
 
-    /// <summary>
-    /// Hàm chính: Load DLL -> Execute -> Unload -> Return Result
-    /// </summary>
-    //public async Task<PluginResult> ExecutePluginAsync(
-    //    string dllPath,
-    //    string jsonPayload,
-    //    CancellationToken cancellationToken)
-    //{
-    //    if (!File.Exists(dllPath))
-    //        return PluginResult.Failure($"Plugin DLL not found at: {dllPath}");
+    // [QUAN TRỌNG]: Tách hàm và cấm Inlining để C# không giam reference của PluginInstance
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private async Task<PluginResult> ExecuteIsolatedAsync(
+        PluginLoadContext loadContext, string dllPath, string payload, bool isCompensation, CancellationToken ct)
+    {
+        var assembly = loadContext.LoadFromAssemblyPath(dllPath);
+        var pluginType = assembly.GetTypes()
+            .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t) && !t.IsAbstract);
 
-    //    WeakReference alcWeakRef;
-    //    PluginResult result;
+        if (pluginType == null) return PluginResult.Failure("Missing IWorkflowPlugin implementation in DLL.");
 
-    //    try
-    //    {
-    //        // --- FIX: Sử dụng Tuple Deconstruction để lấy kết quả ---
-    //        (result, alcWeakRef) = await ExecuteInContext(dllPath, jsonPayload, cancellationToken);
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        _logger.LogError(ex, "🔥 Host Error executing plugin at {Path}", dllPath);
-    //        return PluginResult.Failure($"Host Error: {ex.Message}");
-    //    }
+        // DÙNG ACTIVATOR UTILITIES ĐỂ BƠM DEPENDENCY (DI) VÀO PLUGIN ĐỘNG
+        using var scope = _serviceProvider.CreateScope();
+        if (ActivatorUtilities.CreateInstance(scope.ServiceProvider, pluginType) is not IWorkflowPlugin pluginInstance)
+        {
+            return PluginResult.Failure("Failed to instantiate plugin. Check Constructor parameters.");
+        }
 
-    //    // --- ALC CLEANUP LOGIC ---
-    //    // Cố gắng Force GC để giải phóng AssemblyLoadContext
-    //    for (int i = 0; i < 10 && alcWeakRef.IsAlive; i++)
-    //    {
-    //        GC.Collect();
-    //        GC.WaitForPendingFinalizers();
-    //    }
+        var pluginContext = new PluginContext(payload, ct);
 
-    //    if (alcWeakRef.IsAlive)
-    //    {
-    //        _logger.LogWarning("⚠️ Plugin ALC failed to unload via GC (Possible memory leak in Plugin code).");
-    //    }
-    //    else
-    //    {
-    //        _logger.LogDebug("✅ Plugin ALC unloaded successfully.");
-    //    }
+        // Chạy Tiến hoặc Lùi
+        return isCompensation
+            ? await pluginInstance.CompensateAsync(pluginContext)
+            : await pluginInstance.ExecuteAsync(pluginContext);
+    }
 
-    //    return result;
-    //}
-
-    //// --- FIX: Đổi kiểu trả về thành Task<(Result, WeakReference)> ---
-    //private async Task<(PluginResult Result, WeakReference AlcWeakRef)> ExecuteInContext(
-    //    string dllPath,
-    //    string jsonPayload,
-    //    CancellationToken ct)
-    //{
-    //    // 1. Tạo Context
-    //    var loadContext = new PluginLoadContext(dllPath);
-    //    var alcWeakRef = new WeakReference(loadContext);
-
-    //    try
-    //    {
-    //        // 2. Load Assembly
-    //        var assembly = loadContext.LoadFromAssemblyPath(dllPath);
-
-    //        // 3. Tìm Implementation của IWorkflowPlugin
-    //        var pluginType = assembly.GetTypes()
-    //            .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t) && !t.IsAbstract);
-
-    //        if (pluginType == null)
-    //            return (PluginResult.Failure("DLL missing IWorkflowPlugin implementation."), alcWeakRef);
-
-    //        if (Activator.CreateInstance(pluginType) is not IWorkflowPlugin pluginInstance)
-    //            return (PluginResult.Failure("Failed to create plugin instance."), alcWeakRef);
-
-    //        // 4. Prepare Context
-    //        var pluginContext = new PluginContext(jsonPayload, ct);
-
-    //        // 5. Execute
-    //        _logger.LogInformation("🚀 executing: {Name}", pluginInstance.Name);
-    //        var result = await pluginInstance.ExecuteAsync(pluginContext);
-
-    //        // Trả về kết quả + tham chiếu yếu
-    //        return (result, alcWeakRef);
-    //    }
-    //    finally
-    //    {
-    //        // 6. Đánh dấu Unload
-    //        loadContext.Unload();
-    //    }
-    //}
+    private async Task<string?> DownloadDllToTempAsync(string fileKey, CancellationToken ct)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var storageService = scope.ServiceProvider.GetRequiredService<IStorageService>();
+        // Ví dụ logic: Kéo từ MinIO -> Lưu vào Path.GetTempFileName() + ".dll"
+        // await _storageService.DownloadFileAsync("bucket-name", fileKey, localPath, ct);
+        // Tạm mock trả về đường dẫn hiện tại nếu bạn chưa implement StorageService
+        return File.Exists(fileKey) ? fileKey : null;
+    }
 }
