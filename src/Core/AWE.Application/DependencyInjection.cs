@@ -13,6 +13,8 @@ using AWE.Application.UseCases.Executions.SuspendExecution;
 using AWE.Application.UseCases.Executions.ResumeExecution;
 using AWE.Application.UseCases.Executions.RetryExecution;
 using AWE.Application.UseCases.Workflows.ScheduleDefinition;
+using AWE.Application.UseCases.Monitor.Daskboard;
+using AWE.Application.UseCases.Audit;
 
 namespace AWE.Application;
 
@@ -28,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IExportDefinitionUseCase, ExportDefinitionUseCase>();
         services.AddScoped<IImportDefinitionUseCase, ImportDefinitionUseCase>();
         services.AddScoped<ICreateScheduleUseCase, CreateScheduleUseCase>();
+        services.AddScoped<IGetDashboardMetricsQueryHandler, GetDashboardMetricsQueryHandler>();
 
         // Execution Management
         services.AddScoped<IGetExecutionsUseCase, GetExecutionsUseCase>();
@@ -36,6 +39,9 @@ public static class DependencyInjection
         services.AddScoped<ISuspendExecutionUseCase, SuspendExecutionUseCase>();
         services.AddScoped<IResumeExecutionUseCase, ResumeExecutionUseCase>();
         services.AddScoped<IRetryExecutionUseCase, RetryExecutionUseCase>();
+
+        // Audit log
+        services.AddScoped<IGetAuditHistoryQueryHandler, GetAuditHistoryQueryHandler>();
 
         return services;
     }

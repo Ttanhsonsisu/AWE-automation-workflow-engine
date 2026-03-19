@@ -1,9 +1,11 @@
 ﻿using System.Text.Json;
 using AWE.Domain.Entities;
 using AWE.Infrastructure.Extensions;
+using AWE.Infrastructure.Persistence.Interceptors;
 using MassTransit;
 using MassTransit.EntityFrameworkCoreIntegration;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AWE.Infrastructure.Persistence;
 
@@ -24,6 +26,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PluginPackage> PluginPackages => Set<PluginPackage>();
     public DbSet<PluginVersion> PluginVersions => Set<PluginVersion>();
     public DbSet<WorkflowSchedule> WorkflowSchedules => Set<WorkflowSchedule>();
+    public DbSet<SystemAuditLog> SystemAuditLogs => Set<SystemAuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +41,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         modelBuilder.AddOutboxStateEntity(cfg => cfg.ToTable("OutboxState"));
 
         modelBuilder.ApplySnakeCaseColumnNames();
+
     }
 
     private static void ConfigureJsonDocuments(ModelBuilder modelBuilder)

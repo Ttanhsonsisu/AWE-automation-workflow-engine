@@ -4,6 +4,7 @@ using AWE.Application.Services;
 using AWE.Infrastructure.ConfigOptions;
 using AWE.Infrastructure.Extensions;
 using AWE.Infrastructure.Persistence;
+using AWE.Infrastructure.Persistence.Interceptors;
 using AWE.Infrastructure.Persistence.Repositories;
 using AWE.Infrastructure.Plugins;
 using AWE.Infrastructure.Services;
@@ -46,14 +47,22 @@ public static class DependencyInjection
                 BotToken = "your_bot_token",
                 ChatID = "your_chat_id"
             };
-        services.AddDbContext<ApplicationDbContext>(options =>
+
+        // add audit interceptor
+        services.AddSingleton<AuditSaveChangesInterceptor>();
+
+        services.AddDbContext<ApplicationDbContext>((sp, options) =>
         {
+            var interceptor = sp.GetRequiredService<AuditSaveChangesInterceptor>();
+
             options.UseNpgsql(connectionString, npgsqlOptions =>
             {
                 npgsqlOptions.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName);
                 npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3);
                 npgsqlOptions.CommandTimeout(30);
-            });
+            })
+            // Add the interceptor to the DbContext
+            .AddInterceptors(interceptor);
 
             // Enable sensitive data logging in dev 
             if (configuration.GetValue<bool>("DetailedErrors"))
@@ -74,6 +83,7 @@ public static class DependencyInjection
         services.AddScoped<IPluginPackageRepository, PluginPackageRepository>();
         services.AddScoped<IPluginVersionRepository, PluginVersionRepository>();
         services.AddScoped<IWorkflowScheduleRepository, WorkflowScheduleRepository>();
+        services.AddScoped<ISystemAuditLogRepository, SystemAuditLogRepository>();
 
         // Service
         services.AddAweObjectStorage(configuration);
