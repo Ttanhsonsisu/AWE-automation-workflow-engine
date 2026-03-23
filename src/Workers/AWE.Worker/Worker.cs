@@ -44,16 +44,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
     {
         var cmd = context.Message;
         _logger.LogInformation("🛠️ [{Worker}] START Step {Node} ({Type})", _workerId, cmd.NodeId, cmd.StepType);
-        // 1. LOG: Node bắt đầu chạy
-        await context.Publish(new WriteAuditLogCommand(
-            InstanceId: cmd.InstanceId,
-            Event: "StepStarted",
-            Message: $"Bắt đầu thực thi Node: {cmd.NodeId}",
-            Level: Domain.Enums.LogLevel.Information,
-            //ExecutionPointerId: cmd.PointerId,
-            NodeId: cmd.NodeId,
-            WorkerId: Environment.MachineName
-        ));
 
         // IDEMPOTENCY CHECK
         var pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId);
@@ -70,6 +60,24 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             return;
         }
 
+        if (!pointer.TryAcquireLease(_workerId, TimeSpan.FromMinutes(5)))
+        {
+            _logger.LogWarning("⚠️ Step {Node} is locked by another worker.", cmd.NodeId);
+            return;
+        }
+        await _uow.SaveChangesAsync();
+
+        // 👉 SỬA: CHỈ BẮN LOG KHI ĐÃ CẦM CHẮC LEASE TRONG TAY
+        await context.Publish(new WriteAuditLogCommand(
+            InstanceId: cmd.InstanceId,
+            Event: "StepStarted",
+            Message: $"Bắt đầu thực thi Node: {cmd.NodeId}",
+            Level: Domain.Enums.LogLevel.Information,
+            ExecutionPointerId: cmd.ExecutionPointerId, // Bỏ comment chỗ này
+            NodeId: cmd.NodeId,
+            WorkerId: Environment.MachineName
+        ));
+
         // setup heartbeat running worker
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
 
@@ -78,10 +86,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
 
         try
         {
-            // ACQUIRE LEASE
-            if (!pointer.TryAcquireLease(_workerId, TimeSpan.FromMinutes(5))) return;
-            await _uow.SaveChangesAsync();
-
             // DYNAMIC ROUTER: Phân luồng thực thi (Hybrid Architecture)
             PluginResult pluginResult;
             var pluginContext = new PluginContext(cmd.Payload, context.CancellationToken);
@@ -109,6 +113,10 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 throw new Exception(pluginResult.ErrorMessage ?? "Plugin failed without message.");
             }
 
+            // TẮT HEARTBEAT TRƯỚC KHI CHỐT DATA
+            await cts.CancelAsync();
+            try { await heartbeatTask; } catch { }
+
             // PERSISTENCE & OUTBOX EVENT
             var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
             pointer.Complete(_workerId, outputDoc);
@@ -117,8 +125,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             await context.Publish(new StepCompletedEvent(
                   cmd.InstanceId, cmd.ExecutionPointerId, cmd.NodeId, outputDoc, DateTime.UtcNow
             ), ctx => ctx.SetRoutingKey(routingKey));
-
-            await _uow.SaveChangesAsync(); // Double-Save: Lưu Entity + Outbox Message
 
             _logger.LogInformation("✅ [{Worker}] Step {Node} Completed.", _workerId, cmd.NodeId);
 
@@ -133,11 +139,15 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 MetadataJson: JsonSerializer.Serialize(outputDoc) 
             ));
 
-            await cts.CancelAsync();
+            await _uow.SaveChangesAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "🔥 [{Worker}] Error on Step {Node}", _workerId, cmd.NodeId);
+
+            await cts.CancelAsync();
+            try { await heartbeatTask; } catch { }
+
             await context.Publish(new WriteAuditLogCommand(
                 InstanceId: cmd.InstanceId,
                 Event: "StepError",
@@ -149,7 +159,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString() })
             ));
             await HandleFailureAsync(pointer, cmd, ex.Message, context);
-            await cts.CancelAsync();
             //throw;
         }
         finally
