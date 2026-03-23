@@ -9,10 +9,13 @@ using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
 
-public class PointerDispatcher(IVariableResolver resolver, ILogger<PointerDispatcher> logger) : IPointerDispatcher
+public class PointerDispatcher(IVariableResolver resolver,
+    ILogger<PointerDispatcher> logger,
+    IMessageScheduler messageScheduler) : IPointerDispatcher
 {
     private readonly IVariableResolver _resolver = resolver;
     private readonly ILogger<PointerDispatcher> _logger = logger;
+    private readonly IMessageScheduler _messageScheduler = messageScheduler;
 
     public async Task<ExecutePluginCommand?> CreateDispatchCommand(WorkflowInstance instance, ExecutionPointer pointer, JsonDocument defJson)
     {
@@ -41,8 +44,16 @@ public class PointerDispatcher(IVariableResolver resolver, ILogger<PointerDispat
                     delaySeconds = parsedSec;
                 }
 
+                var wakeupTime = DateTime.UtcNow.AddSeconds(delaySeconds);
+
+                await _messageScheduler.SchedulePublish(wakeupTime, new ResumeStepCommand(
+                    InstanceId: instance.Id,
+                    PointerId: pointer.Id,
+                    StepId: pointer.StepId
+                ));
+
                 // add time buffer 5s để đảm bảo Worker không bị đánh thức quá sớm do trễ mạng hoặc load cao
-                pointer.HibernateUntil(DateTime.UtcNow.AddSeconds(delaySeconds));
+                //pointer.HibernateUntil(DateTime.UtcNow.AddSeconds(delaySeconds));
                 _logger.LogInformation("⏳ Workflow {InstanceId} HIBERNATED at Step {StepId}. Will wake up at {ResumeAt}", instance.Id, pointer.StepId, pointer.ResumeAt);
             }
             else

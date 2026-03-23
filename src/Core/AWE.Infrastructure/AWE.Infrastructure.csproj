@@ -11,6 +11,7 @@
     <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageReference Include="MassTransit" Version="9.0.0" />
     <PackageReference Include="MassTransit.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="MassTransit.Quartz" Version="9.0.0" />
     <PackageReference Include="MassTransit.RabbitMQ" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
@@ -25,6 +26,9 @@
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" Version="10.0.2" />
     <PackageReference Include="Minio" Version="7.0.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageReference Include="Quartz.Extensions.Hosting" Version="3.16.1" />
+    <PackageReference Include="Quartz.Serialization.Json" Version="3.16.1" />
+    <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.16.1" />
     <PackageReference Include="StackExchange.Redis" Version="2.11.8" />
   </ItemGroup>
 
