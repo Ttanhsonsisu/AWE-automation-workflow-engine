@@ -1,36 +1,73 @@
 ﻿using System.Text.Json;
 using AWE.Application.Abstractions.CoreEngine;
-using AWE.Shared.Primitives;
+using AWE.Application.Abstractions.Persistence;
+using AWE.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/v1/plugins")]
-public class PluginCatalogController(IPluginRegistry pluginRegistry) : ApiController
+public class PluginCatalogController : ApiController
 {
-    private readonly IPluginRegistry _pluginRegistry = pluginRegistry;
+    private readonly IPluginRegistry _pluginRegistry;
+    private readonly IPluginPackageRepository _packageRepo;
 
-    [HttpGet]
-    public IActionResult GetPluginCatalog()
+    public PluginCatalogController(IPluginRegistry pluginRegistry, IPluginPackageRepository packageRepo)
     {
-        var builtInPlugins = _pluginRegistry.GetAllPlugins();
+        _pluginRegistry = pluginRegistry;
+        _packageRepo = packageRepo;
+    }
 
-        var catalog = builtInPlugins.Select(p => new
+    [HttpGet("catalog")]
+    public async Task<IActionResult> GetPluginCatalog(CancellationToken ct)
+    {
+        var catalog = new List<object>();
+
+        // 1. LẤY BUILT-IN PLUGINS TỪ RAM
+        var builtInPlugins = _pluginRegistry.GetAllPlugins();
+        var builtInItems = builtInPlugins.Select(p => new
         {
             name = p.Name,
             displayName = p.DisplayName,
             description = p.Description,
             category = p.Category,
             icon = p.Icon,
+            executionMode = PluginExecutionMode.BuiltIn.ToString(), 
+            dllPath = (string?)null,
             inputSchema = ParseSchema(p.InputSchema),
             outputSchema = ParseSchema(p.OutputSchema)
-        })
-        .OrderBy(p => p.category)
-        .ThenBy(p => p.displayName)
-        .ToList();
+        });
+        catalog.AddRange(builtInItems);
 
-        //return HandleResult(Result(catalog));
-        return Ok(catalog);
+        // Query toàn bộ Package có chứa Version đang Active
+        var customPackages = await _packageRepo.ListAsync(ct);
+
+        foreach (var pkg in customPackages)
+        {
+            var activeVersion = pkg.Versions.FirstOrDefault(v => v.IsActive);
+            if (activeVersion == null) continue; 
+
+            catalog.Add(new
+            {
+                name = pkg.UniqueName, 
+                displayName = pkg.DisplayName,
+                description = pkg.Description,
+                category = "Custom", 
+                icon = "lucide-box",
+                executionMode = PluginExecutionMode.DynamicDll.ToString(),
+                dllPath = activeVersion.ObjectKey, 
+                inputSchema = ParseSchema(activeVersion.ConfigSchema?.RootElement.GetRawText() ?? "{}"),
+                outputSchema = ParseSchema("{}") 
+            });
+        }
+
+        // 3. SẮP XẾP VÀ TRẢ VỀ
+        var sortedCatalog = catalog
+            .OrderBy(p => ((dynamic)p).category)
+            .ThenBy(p => ((dynamic)p).displayName)
+            .ToList();
+
+        return Ok(sortedCatalog);
     }
 
     private object ParseSchema(string schemaString)
@@ -44,7 +81,7 @@ public class PluginCatalogController(IPluginRegistry pluginRegistry) : ApiContro
         }
         catch
         {
-            return new object(); // Trả về object rỗng nếu chuỗi JSON cấu hình lỗi
+            return new object();
         }
     }
 }
