@@ -15,6 +15,7 @@ using AWE.Application.UseCases.Executions.RetryExecution;
 using AWE.Application.UseCases.Workflows.ScheduleDefinition;
 using AWE.Application.UseCases.Monitor.Daskboard;
 using AWE.Application.UseCases.Audit;
+using AWE.Application.UseCases.Approvals.SubmitApproval;
 
 namespace AWE.Application;
 
@@ -42,6 +43,9 @@ public static class DependencyInjection
 
         // Audit log
         services.AddScoped<IGetAuditHistoryQueryHandler, GetAuditHistoryQueryHandler>();
+
+        // Approvals
+        services.AddScoped<ISubmitApprovalUseCase, SubmitApprovalUseCase>();
 
         return services;
     }
