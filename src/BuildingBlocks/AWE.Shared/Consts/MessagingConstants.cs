@@ -19,10 +19,13 @@ public class MessagingConstants
     public const string QueueCore = "q.workflow.core";      // Engine
     public const string QueuePlugin = "q.workflow.plugin";  // Worker
     public const string QueueAudit = "q.workflow.audit";    // Logger
+    public const string QueueQuartz = "q.workflow.quartz"; // Scheduler
 
     // Routing Keys
     public const string PatternCmd = "workflow.cmd.#";
     public const string PatternPlugin = "workflow.plugin.#";
     public const string PatternAudit = "workflow.#";
     public const string PatternEvent = "workflow.event.#";
+
+
 }

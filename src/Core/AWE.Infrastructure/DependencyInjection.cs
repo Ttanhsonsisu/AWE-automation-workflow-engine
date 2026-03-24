@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Minio;
+using Quartz;
 using StackExchange.Redis;
 
 namespace AWE.Infrastructure;
@@ -120,6 +121,10 @@ public static class DependencyInjection
 
             x.SetKebabCaseEndpointNameFormatter();
 
+            // add quartz scheduler
+            x.AddQuartzConsumers();
+            x.AddMessageScheduler(new Uri($"queue:{MessagingConstants.QueueQuartz}"));
+
             // add outbox config
             x.AddEntityFrameworkOutbox<ApplicationDbContext>(o =>
             {
@@ -136,10 +141,22 @@ public static class DependencyInjection
                 // URI Connection String
                 var uri = new Uri($"rabbitmq://{opts.Host}:{opts.Port}/{opts.VirtualHost}");
 
+                cfg.UseMessageScheduler(new Uri($"queue:{MessagingConstants.QueueQuartz}"));
+
                 cfg.Host(uri, h =>
                 {
                     h.Username(opts.Username);
                     h.Password(opts.Password);
+                });
+
+                cfg.ReceiveEndpoint(MessagingConstants.QueueQuartz, e =>
+                {
+                    // CHỈ bind các Consumer của chuẩn Quartz của MassTransit vào đây
+                    //e.ConfigureConsumers(context);
+                    e.ConfigureConsumer<MassTransit.QuartzIntegration.ScheduleMessageConsumer>(context);
+                    e.ConfigureConsumer<MassTransit.QuartzIntegration.CancelScheduledMessageConsumer>(context);
+                    e.ConfigureConsumer<MassTransit.QuartzIntegration.PauseScheduledMessageConsumer>(context);
+                    e.ConfigureConsumer<MassTransit.QuartzIntegration.ResumeScheduledMessageConsumer>(context);
                 });
 
                 cfg.PrefetchCount = opts.PrefetchCount;
@@ -148,6 +165,39 @@ public static class DependencyInjection
                 cfg.ConfigureEndpoints(context);
             });
         });
+
+        // Quartz.NET configuration
+        services.AddQuartz(q =>
+        {
+            q.SetProperty("quartz.serializer.type", "json");
+
+            // Cấu hình Persistent Store
+            q.UsePersistentStore(s =>
+            {
+                // 1. Chỉ định dùng PostgreSQL
+                s.UsePostgres(postgresOptions =>
+                {
+                    postgresOptions.ConnectionString = configuration.GetConnectionString("postgres")
+                                                        ?? throw new InvalidOperationException("Connection string not found");
+                    postgresOptions.TablePrefix = "qrtz_"; // Tiền tố chuẩn của bảng Quartz
+                });
+
+                s.UseSystemTextJsonSerializer();
+
+                // 3. Bật chế độ Clustering cho kiến trúc Microservices/Nhiều Worker
+                s.UseClustering(c =>
+                {
+                    c.CheckinMisfireThreshold = TimeSpan.FromSeconds(20);
+                    c.CheckinInterval = TimeSpan.FromSeconds(10);
+                });
+            });
+        });
+
+        services.AddQuartzHostedService(options =>
+        {
+            options.WaitForJobsToComplete = true;
+        });
+
 
         return services;
     }

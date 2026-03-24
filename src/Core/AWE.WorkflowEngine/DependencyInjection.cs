@@ -21,9 +21,9 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowOrchestrator, WorkflowOrchestrator>();
 
         // add backgroundservice
-        services.AddHostedService<RecoveryBackgroundService>();
-        services.AddHostedService<DelayWakeUpBackgroundService>();
-        services.AddHostedService<CronSchedulePublisherService>();
+        //services.AddHostedService<RecoveryBackgroundService>();
+        //services.AddHostedService<DelayWakeUpBackgroundService>();
+        //services.AddHostedService<CronSchedulePublisherService>();
 
         // add built-in plugins
         services.AddScoped<IPluginRegistry, PluginRegistry>();

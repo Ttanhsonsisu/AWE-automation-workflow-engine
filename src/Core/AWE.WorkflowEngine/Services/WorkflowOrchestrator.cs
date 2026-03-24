@@ -360,8 +360,6 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (instance == null || instance.Status != WorkflowInstanceStatus.Running)
             return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not running."));
 
-        // Đã xóa dòng fetch WorkflowDefinition thừa thãi và vi phạm Clean Architecture
-
         // =================================================================
         // FR-11: WAKE UP & INJECT DATA (Đánh thức và Bơm dữ liệu)
         // =================================================================
@@ -370,12 +368,6 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         // Cập nhật state Context Data của toàn bộ Workflow bằng hàm xịn bạn vừa viết
         _contextManager.MergeStepOutput(instance, pointer.StepId, resumeData);
-
-        // Đổi trạng thái sang Pending để đánh lừa luồng HandleStepCompletionAsync phía sau 
-        // hiểu rằng Node này vừa được "Worker" chạy xong
-
-        ///pointer.ResetToPending();
-
 
         // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
         // Như vậy hệ thống mới đảm bảo tính Atomic .
