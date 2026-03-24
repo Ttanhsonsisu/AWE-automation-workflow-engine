@@ -53,7 +53,7 @@ public class PointerDispatcher(IVariableResolver resolver,
                 ));
 
                 // add time buffer 5s để đảm bảo Worker không bị đánh thức quá sớm do trễ mạng hoặc load cao
-                //pointer.HibernateUntil(DateTime.UtcNow.AddSeconds(delaySeconds));
+                pointer.HibernateUntil(DateTime.UtcNow.AddSeconds(delaySeconds));
                 _logger.LogInformation("⏳ Workflow {InstanceId} HIBERNATED at Step {StepId}. Will wake up at {ResumeAt}", instance.Id, pointer.StepId, pointer.ResumeAt);
             }
             else
