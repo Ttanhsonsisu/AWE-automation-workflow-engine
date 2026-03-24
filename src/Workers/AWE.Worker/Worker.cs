@@ -86,9 +86,15 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
 
         try
         {
+            // Bơm PointerId và InstanceId vào Payload để Plugin có thể dùng
+            var payloadDict = JsonSerializer.Deserialize<Dictionary<string, object>>(cmd.Payload) ?? new();
+            payloadDict["PointerId"] = cmd.ExecutionPointerId.ToString();
+            payloadDict["InstanceId"] = cmd.InstanceId.ToString();
+            var enrichedPayload = JsonSerializer.Serialize(payloadDict);
+
             // DYNAMIC ROUTER: Phân luồng thực thi (Hybrid Architecture)
             PluginResult pluginResult;
-            var pluginContext = new PluginContext(cmd.Payload, context.CancellationToken);
+            var pluginContext = new PluginContext(enrichedPayload, context.CancellationToken);
 
             switch (cmd.ExecutionMode)
             {
@@ -107,43 +113,68 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                     break;
             }
 
-            // Xử lý Lỗi nghiệp vụ từ Plugin
-            if (!pluginResult.IsSuccess)
-            {
-                throw new Exception(pluginResult.ErrorMessage ?? "Plugin failed without message.");
-            }
-
             // TẮT HEARTBEAT TRƯỚC KHI CHỐT DATA
             await cts.CancelAsync();
             try { await heartbeatTask; } catch { }
 
             // PERSISTENCE & OUTBOX EVENT
-            var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
-            pointer.Complete(_workerId, outputDoc);
+            if (pluginResult.IsSuspended == true)
+            {
+                // 1. NHÁNH SUSPEND: Plugin yêu cầu chờ (Approval / Payment)
+                _logger.LogInformation("[{Worker}] Step {Node} SUSPENDED. Reason: {Msg}", _workerId, cmd.NodeId, pluginResult.Message);
 
-            var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}completed";
-            await context.Publish(new StepCompletedEvent(
-                  cmd.InstanceId, cmd.ExecutionPointerId, cmd.NodeId, outputDoc, DateTime.UtcNow
-            ), ctx => ctx.SetRoutingKey(routingKey));
+                // Bắn lệnh về cho Core Engine để nó đổi trạng thái Database thành WaitingForEvent
+                await context.Publish(new SuspendStepCommand(
+                    InstanceId: cmd.InstanceId,
+                    PointerId: cmd.ExecutionPointerId,
+                    Reason: pluginResult.Message
+                ));
 
-            _logger.LogInformation("✅ [{Worker}] Step {Node} Completed.", _workerId, cmd.NodeId);
+                await context.Publish(new WriteAuditLogCommand(
+                    InstanceId: cmd.InstanceId,
+                    Event: "StepSuspended",
+                    Message: $"Node {cmd.NodeId} chuyển sang trạng thái chờ: {pluginResult.Message}",
+                    Level: Domain.Enums.LogLevel.Information,
+                    ExecutionPointerId: cmd.ExecutionPointerId,
+                    NodeId: cmd.NodeId,
+                    WorkerId: Environment.MachineName
+                ));
+            }
+            else if (pluginResult.IsSuccess)
+            {
+                // logic success, complete step
+                var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
+                pointer.Complete(_workerId, outputDoc);
 
-            await context.Publish(new WriteAuditLogCommand(
-                InstanceId: cmd.InstanceId,
-                Event: "StepCompleted",
-                Message: $"Node {cmd.NodeId} hoàn thành thành công.",
-                Level: Domain.Enums.LogLevel.Information,
-                ExecutionPointerId: cmd.ExecutionPointerId,
-                NodeId: cmd.NodeId,
-                WorkerId: Environment.MachineName,
-                MetadataJson: JsonSerializer.Serialize(outputDoc) 
-            ));
+                var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}completed";
+                await context.Publish(new StepCompletedEvent(
+                      cmd.InstanceId, cmd.ExecutionPointerId, cmd.NodeId, outputDoc, DateTime.UtcNow
+                ), ctx => ctx.SetRoutingKey(routingKey));
 
-            await _uow.SaveChangesAsync();
+                _logger.LogInformation("[{Worker}] Step {Node} Completed.", _workerId, cmd.NodeId);
+
+                await context.Publish(new WriteAuditLogCommand(
+                    InstanceId: cmd.InstanceId,
+                    Event: "StepCompleted",
+                    Message: $"Node {cmd.NodeId} hoàn thành thành công.",
+                    Level: Domain.Enums.LogLevel.Information,
+                    ExecutionPointerId: cmd.ExecutionPointerId,
+                    NodeId: cmd.NodeId,
+                    WorkerId: Environment.MachineName,
+                    MetadataJson: JsonSerializer.Serialize(outputDoc)
+                ));
+
+                await _uow.SaveChangesAsync();
+            }
+            else
+            {
+                // throw error plugin 
+                throw new Exception(pluginResult.ErrorMessage ?? pluginResult.Message ?? "Plugin failed without message.");
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "🔥 [{Worker}] Error on Step {Node}", _workerId, cmd.NodeId);
+            _logger.LogError(ex, "[{Worker}] Error on Step {Node}", _workerId, cmd.NodeId);
 
             await cts.CancelAsync();
             try { await heartbeatTask; } catch { }

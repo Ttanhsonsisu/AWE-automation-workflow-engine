@@ -27,6 +27,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<PluginVersion> PluginVersions => Set<PluginVersion>();
     public DbSet<WorkflowSchedule> WorkflowSchedules => Set<WorkflowSchedule>();
     public DbSet<SystemAuditLog> SystemAuditLogs => Set<SystemAuditLog>();
+    public DbSet<ApprovalToken> ApprovalTokens => Set<ApprovalToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -387,4 +387,27 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         }
         throw new InvalidOperationException($"Step {stepId} not found in definition");
     }
+
+    public async Task<Result> HandleStepSuspendedAsync(Guid instanceId, Guid pointerId, string? reason)
+    {
+        var pointer = await _pointerRepo.GetPointerByIdAsync(pointerId);
+        if (pointer == null)
+            return Result.Failure(Error.NotFound("Pointer.NotFound", "Execution Pointer not found."));
+
+        // Chỉ xử lý nếu Pointer đang chạy (đề phòng duplicate message)
+        if (pointer.Status != ExecutionPointerStatus.Running)
+        {
+            _logger.LogWarning("Pointer {Id} is not in Running state (Current: {Status}). Suspend ignored.", pointer.Id, pointer.Status);
+            return Result.Success();
+        }
+
+        // Đổi trạng thái từ Running -> WaitingForEvent (Ngủ đông)
+        pointer.PauseForWebhook();
+
+        _logger.LogInformation("Workflow {InstanceId} SUSPENDED at Step {StepId}. Reason: {Reason}", instanceId, pointer.StepId, reason);
+
+        // Lưu trạng thái xuống DB
+        await _uow.SaveChangesAsync();
+        return Result.Success();
+    }
 }
