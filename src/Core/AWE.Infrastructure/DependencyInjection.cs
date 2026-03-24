@@ -166,32 +166,32 @@ public static class DependencyInjection
             });
         });
 
-        services.AddQuartz();
-        //services.AddQuartz(q =>
-        //{
-        //    q.SetProperty("quartz.serializer.type", "json");
+        // Quartz.NET configuration
+        services.AddQuartz(q =>
+        {
+            q.SetProperty("quartz.serializer.type", "json");
 
-        //    // Cấu hình lưu trữ bền vững (Persistent Store)
-        //    q.UsePersistentStore(s =>
-        //    {
-        //        // 1. Chỉ định dùng PostgreSQL
-        //        s.UsePostgres(postgresOptions =>
-        //        {
-        //            postgresOptions.ConnectionString = configuration.GetConnectionString("postgres")
-        //                                                ?? throw new InvalidOperationException("Connection string not found"); 
-        //            postgresOptions.TablePrefix = "qrtz_"; // Tiền tố chuẩn của bảng Quartz
-        //        });
+            // Cấu hình Persistent Store
+            q.UsePersistentStore(s =>
+            {
+                // 1. Chỉ định dùng PostgreSQL
+                s.UsePostgres(postgresOptions =>
+                {
+                    postgresOptions.ConnectionString = configuration.GetConnectionString("postgres")
+                                                        ?? throw new InvalidOperationException("Connection string not found");
+                    postgresOptions.TablePrefix = "qrtz_"; // Tiền tố chuẩn của bảng Quartz
+                });
 
-        //        s.UseSystemTextJsonSerializer();
+                s.UseSystemTextJsonSerializer();
 
-        //        // 3. Bật chế độ Clustering cho kiến trúc Microservices/Nhiều Worker
-        //        s.UseClustering(c =>
-        //        {
-        //            c.CheckinMisfireThreshold = TimeSpan.FromSeconds(20);
-        //            c.CheckinInterval = TimeSpan.FromSeconds(10);
-        //        });
-        //    });
-        //});
+                // 3. Bật chế độ Clustering cho kiến trúc Microservices/Nhiều Worker
+                s.UseClustering(c =>
+                {
+                    c.CheckinMisfireThreshold = TimeSpan.FromSeconds(20);
+                    c.CheckinInterval = TimeSpan.FromSeconds(10);
+                });
+            });
+        });
 
         services.AddQuartzHostedService(options =>
         {
@@ -232,6 +232,6 @@ public static class DependencyInjection
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        //await context.Database.MigrateAsync();
+        await context.Database.MigrateAsync();
     }
 }
