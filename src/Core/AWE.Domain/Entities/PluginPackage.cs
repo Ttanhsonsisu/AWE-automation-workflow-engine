@@ -1,4 +1,5 @@
 ﻿using AWE.Domain.Common;
+using AWE.Domain.Enums;
 
 namespace AWE.Domain.Entities;
 
@@ -23,6 +24,13 @@ public class PluginPackage : AuditableEntity
     /// </summary>
     public string? Description { get; private set; }
 
+    // metadata for categorization and UI
+    public string Category { get; private set; }
+    public string Icon { get; private set; } = "lucide-box";
+
+    /// Determines how the plugin is executed at runtime
+    public PluginExecutionMode ExecutionMode { get; private set; }
+
     /// <summary>
     /// Navigation property to versions
     /// </summary>
@@ -31,26 +39,37 @@ public class PluginPackage : AuditableEntity
     // Private constructor for EF Core
     private PluginPackage() : base() { }
 
-    public PluginPackage(string uniqueName, string displayName, string? description = null)
-        : base()
+    public PluginPackage(string uniqueName, string displayName, PluginExecutionMode executionMode, string category = "Custom", string icon = "lucide-box", string? description = null)
+            : base()
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
+        {
             throw new ArgumentException("Unique name cannot be empty", nameof(uniqueName));
-
+        }
         if (string.IsNullOrWhiteSpace(displayName))
+        {
             throw new ArgumentException("Display name cannot be empty", nameof(displayName));
+        }
 
         UniqueName = uniqueName;
         DisplayName = displayName;
+        ExecutionMode = executionMode;
+        Category = category;
+        Icon = icon;
         Description = description;
     }
 
-    public void UpdateDisplayName(string displayName)
+    public void UpdateDetails(string displayName, string category, string icon, string? description)
     {
         if (string.IsNullOrWhiteSpace(displayName))
+        {
             throw new ArgumentException("Display name cannot be empty", nameof(displayName));
+        }
 
         DisplayName = displayName;
+        Category = category;
+        Icon = icon;
+        Description = description;
         MarkAsUpdated();
     }
 

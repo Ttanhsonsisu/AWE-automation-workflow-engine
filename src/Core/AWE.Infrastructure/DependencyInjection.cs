@@ -92,7 +92,7 @@ public static class DependencyInjection
         services.AddSingleton<PluginLoader>();
         services.AddScoped<IStorageService, MinioStorageService>();
         services.AddScoped<IPluginValidator, PluginValidator>();
-        services.AddScoped<IPluginService, PluginService>();
+        //services.AddScoped<IPluginService, PluginService>();
         services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
         // Background service
         // TODO:

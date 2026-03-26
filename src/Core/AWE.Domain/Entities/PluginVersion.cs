@@ -19,16 +19,8 @@ public class PluginVersion : AuditableEntity
     /// </summary>
     public string Version { get; private set; } = string.Empty;
 
-    /// <summary>
-    /// Physical path to the plugin assembly DLL
-    /// Used by AssemblyLoadContext to load the plugin at runtime
-    /// </summary>
-    public string ObjectKey { get; private set; } = string.Empty;
-
-    public string Bucket { get; private set; } = string.Empty;
-    public string Sha256 { get; private set; } = string.Empty;
-    public long Size { get; private set;  }
-    public string StorageProvider { get; private set; } = string.Empty;
+    // Storage information for the plugin assembly DLL (thay cho Bucket, Key, Sha256...)
+    public JsonDocument ExecutionMetadata { get; private set; } = null!;
 
 
     /// <summary>
@@ -58,44 +50,25 @@ public class PluginVersion : AuditableEntity
     public PluginVersion(
         Guid packageId,
         string version,
-        string bucket,
-        string objectKey,
-        string sha256,
-        long size,
+        JsonDocument executionMetadata,
         JsonDocument? configSchema = null,
-        string? releaseNotes = null,
-        string? storageProvider = "MinIO")
+        string? releaseNotes = null)
         : base()
     {
         if (packageId == Guid.Empty)
+        {
             throw new ArgumentException("PackageId cannot be empty", nameof(packageId));
-
+        }
         if (string.IsNullOrWhiteSpace(version))
+        {
             throw new ArgumentException("Version cannot be empty", nameof(version));
-
-        if (string.IsNullOrWhiteSpace(bucket))
-            throw new ArgumentException("Bucket cannot be empty", nameof(bucket));
-
-        if (string.IsNullOrWhiteSpace(objectKey))
-            throw new ArgumentException("ObjectKey cannot be empty", nameof(objectKey));
-
-        if (string.IsNullOrWhiteSpace(sha256) || sha256.Length != 64)
-            throw new ArgumentException("Sha256 must be a 64-character hex string", nameof(sha256));
-
-        if (size <= 0)
-            throw new ArgumentException("Size must be greater than 0", nameof(size));
+        } 
 
         PackageId = packageId;
         Version = version;
-        Bucket = bucket;
-        ObjectKey = objectKey;
-        Sha256 = sha256;
-        Size = size;
-
-        StorageProvider = storageProvider;
-        ConfigSchema = configSchema;
+        ExecutionMetadata = executionMetadata; // Dữ liệu kỹ thuật
+        ConfigSchema = configSchema; // Dữ liệu giao diện
         ReleaseNotes = releaseNotes;
-
         IsActive = true;
     }
 
