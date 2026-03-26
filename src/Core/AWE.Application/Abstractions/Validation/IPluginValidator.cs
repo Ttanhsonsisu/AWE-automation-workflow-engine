@@ -1,4 +1,5 @@
-﻿using AWE.Application.Dtos.PluginDtos;
+﻿using System.Text.Json;
+using AWE.Application.Dtos.PluginDtos;
 using AWE.Shared.Primitives;
 
 namespace AWE.Application.Abstractions.Validation;
@@ -6,4 +7,7 @@ namespace AWE.Application.Abstractions.Validation;
 public interface IPluginValidator
 {
     Result<PluginMetadataDto> ValidateAssembly(Stream dllStream);
+
+    Result<JsonDocument> ValidateAndExtractSchema(Stream dllStream);
+
 }

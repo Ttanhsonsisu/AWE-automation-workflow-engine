@@ -1,127 +1,116 @@
-﻿//using System.Text.Json;
-//using AWE.ApiGateway.Dtos.Requests; 
-//using AWE.Application.Services;
-//using AWE.Shared.Primitives; 
-//using Microsoft.AspNetCore.Mvc;
+﻿using System.Text.Json;
+using AWE.ApiGateway.Dtos.Requests;
+using AWE.Application.Services;
+using AWE.Shared.Primitives;
+using Microsoft.AspNetCore.Mvc;
 
-//namespace AWE.ApiGateway.Controllers;
+namespace AWE.ApiGateway.Controllers;
 
-//[Route("api/plugins")]
-//public class PluginsController(IPluginService pluginService) : ApiController
-//{
-//    private readonly IPluginService _pluginService = pluginService;
+[Route("api/plugins")]
+public class PluginsController(IPluginService pluginService) : ApiController
+{
+    private readonly IPluginService _pluginService = pluginService;
 
-//    [HttpPost("packages")]
-//    public async Task<IActionResult> CreatePackage(
-//        [FromBody] CreatePluginPackageRequest req,
-//        CancellationToken ct)
-//    {
-//        var result = await _pluginService.CreatePackageAsync(
-//            req.UniqueName,
-//            req.DisplayName,
-//            req.Description,
-//            ct);
+    [HttpPost("packages")]
+    public async Task<IActionResult> CreatePackage(
+        [FromBody] CreatePluginPackageRequest req,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.CreatePackageAsync(
+            req.UniqueName,
+            req.DisplayName,
+            req.ExecutionMode, 
+            req.Category ?? "Custom",
+            req.Icon ?? "lucide-box",
+            req.Description,
+            ct);
 
-//        return HandleResult(result); 
-//    }
+        return HandleResult(result);
+    }
 
-//    [HttpGet("packages")]
-//    public async Task<IActionResult> ListPackages(CancellationToken ct)
-//    {
-//        var result = await _pluginService.ListPackagesAsync(ct);
-//        return HandleResult(result);
-//    }
+    [HttpGet("packages")]
+    public async Task<IActionResult> ListPackages(CancellationToken ct)
+    {
+        var result = await _pluginService.ListPackagesAsync(ct);
+        return HandleResult(result);
+    }
 
-//    // Versions 
-//    [HttpPost("packages/{packageId:guid}/versions")]
-//    [Consumes("multipart/form-data")]
-//    public async Task<IActionResult> UploadVersion(
-//        [FromRoute] Guid packageId,
-//        [FromForm] UploadPluginVersionRequest req,
-//        CancellationToken ct)
-//    {
-//        if (req.File is null || req.File.Length == 0)
-//        {
-//            return HandleFailure(Error.Validation("Request.FileRequired", "File is required."));
-//        }
+    // Versions 
+    [HttpPost("packages/{packageId:guid}/versions")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadVersion(
+        [FromRoute] Guid packageId,
+        [FromForm] UploadPluginVersionRequest req, 
+        CancellationToken ct)
+    {
+        if (req.File is null || req.File.Length == 0)
+        {
+            return HandleFailure(Error.Validation("Request.FileRequired", "File is required."));
+        }
 
-//        JsonDocument? schema = null;
-//        if (!string.IsNullOrWhiteSpace(req.ConfigSchemaJson))
-//        {
-//            try
-//            {
-//                schema = JsonDocument.Parse(req.ConfigSchemaJson);
-//            }
-//            catch
-//            {
-//                return HandleFailure(Error.Validation("Request.InvalidJson", "ConfigSchemaJson is not valid JSON."));
-//            }
-//        }
+        using var stream = req.File.OpenReadStream();
 
-//        using var stream = req.File.OpenReadStream();
+        var result = await _pluginService.UploadVersionAsync(
+            packageId: packageId,
+            version: req.Version,
+            dllStream: stream,
+            fileName: req.File.FileName,
+            bucket: req.Bucket ?? "awe-plugins",
+            releaseNotes: req.ReleaseNotes,
+            ct: ct);
 
-//        var result = await _pluginService.UploadVersionAsync(
-//            packageId: packageId,
-//            version: req.Version,
-//            dllStream: stream,
-//            fileName: req.File.FileName,
-//            bucket: req.Bucket ?? "awe-plugins",
-//            configSchema: schema,
-//            releaseNotes: req.ReleaseNotes,
-//            ct: ct);
+        return HandleResult(result);
+    }
 
-//        return HandleResult(result);
-//    }
+    [HttpGet("packages/{packageId:guid}/versions")]
+    public async Task<IActionResult> ListVersions(
+        [FromRoute] Guid packageId,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.ListVersionsAsync(packageId, ct);
+        return HandleResult(result);
+    }
 
-//    [HttpGet("packages/{packageId:guid}/versions")]
-//    public async Task<IActionResult> ListVersions(
-//        [FromRoute] Guid packageId,
-//        CancellationToken ct)
-//    {
-//        var result = await _pluginService.ListVersionsAsync(packageId, ct);
-//        return HandleResult(result);
-//    }
+    [HttpGet("versions/{versionId:guid}/download")]
+    public async Task<IActionResult> DownloadVersion(
+        [FromRoute] Guid versionId,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.DownloadVersionAsync(versionId, ct);
 
-//    [HttpGet("versions/{versionId:guid}/download")]
-//    public async Task<IActionResult> DownloadVersion(
-//        [FromRoute] Guid versionId,
-//        CancellationToken ct)
-//    {
-//        var result = await _pluginService.DownloadVersionAsync(versionId, ct);
+        if (result.IsFailure)
+        {
+            return HandleFailure(result.Error!);
+        }
 
-//        if (result.IsFailure)
-//        {
-//            return HandleFailure(result.Error!);
-//        }
+        return File(result.Value, "application/octet-stream", fileDownloadName: $"plugin-{versionId}.dll");
+    }
 
-//        return File(result.Value, "application/octet-stream", fileDownloadName: $"plugin-{versionId}.dll");
-//    }
+    [HttpPost("versions/{versionId:guid}/activate")]
+    public async Task<IActionResult> ActivateVersion(
+        [FromRoute] Guid versionId,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.ActivateVersionAsync(versionId, ct);
+        return HandleResult(result);
+    }
 
-//    [HttpPost("versions/{versionId:guid}/activate")]
-//    public async Task<IActionResult> ActivateVersion(
-//        [FromRoute] Guid versionId,
-//        CancellationToken ct)
-//    {
-//        var result = await _pluginService.ActivateVersionAsync(versionId, ct);
-//        return HandleResult(result);
-//    }
+    [HttpPost("versions/{versionId:guid}/deactivate")]
+    public async Task<IActionResult> DeactivateVersion(
+        [FromRoute] Guid versionId,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.DeactivateVersionAsync(versionId, ct);
+        return HandleResult(result);
+    }
 
-//    [HttpPost("versions/{versionId:guid}/deactivate")]
-//    public async Task<IActionResult> DeactivateVersion(
-//        [FromRoute] Guid versionId,
-//        CancellationToken ct)
-//    {
-//        var result = await _pluginService.DeactivateVersionAsync(versionId, ct);
-//        return HandleResult(result);
-//    }
-
-//    [HttpDelete("versions/{versionId:guid}")]
-//    public async Task<IActionResult> DeleteVersion(
-//        [FromRoute] Guid versionId,
-//        [FromQuery] bool deleteObject = true,
-//        CancellationToken ct = default)
-//    {
-//        var result = await _pluginService.DeleteVersionAsync(versionId, deleteObject, ct);
-//        return HandleResult(result);
-//    }
-//}
+    [HttpDelete("versions/{versionId:guid}")]
+    public async Task<IActionResult> DeleteVersion(
+        [FromRoute] Guid versionId,
+        [FromQuery] bool deleteObject = true,
+        CancellationToken ct = default)
+    {
+        var result = await _pluginService.DeleteVersionAsync(versionId, deleteObject, ct);
+        return HandleResult(result);
+    }
+}

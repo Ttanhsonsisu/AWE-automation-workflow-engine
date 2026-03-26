@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using AWE.Application.Dtos.PluginDtos;
+using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 
 namespace AWE.Application.Services;
@@ -10,6 +11,9 @@ public interface IPluginService
     Task<Result<PluginPackageDto>> CreatePackageAsync(
         string uniqueName,
         string displayName,
+        PluginExecutionMode executionMode,
+        string category,
+        string icon,
         string? description,
         CancellationToken ct = default);
 
@@ -20,9 +24,8 @@ public interface IPluginService
         Guid packageId,
         string version,
         Stream dllStream,
-        string fileName, // để build objectKey đẹp + giữ extension
+        string fileName,
         string bucket,
-        JsonDocument? configSchema = null,
         string? releaseNotes = null,
         CancellationToken ct = default);
 

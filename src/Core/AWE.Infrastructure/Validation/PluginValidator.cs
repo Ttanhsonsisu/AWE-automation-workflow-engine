@@ -1,5 +1,7 @@
 ﻿using System.Reflection;
 using System.Runtime.Loader;
+using System.Runtime.Serialization;
+using System.Text.Json;
 using AWE.Application.Abstractions.Validation;
 using AWE.Application.Dtos.PluginDtos;
 using AWE.Domain.Errors;
@@ -55,6 +57,76 @@ public class PluginValidator : IPluginValidator
         finally
         {
             // 5. Dọn dẹp context
+            context.Unload();
+        }
+    }
+
+    public Result<JsonDocument> ValidateAndExtractSchema(Stream dllStream)
+    {
+        // 1. Tạo Context riêng để load DLL (isCollectible = true để chống Memory Leak)
+        var context = new AssemblyLoadContext("ValidationAndExtractionContext", isCollectible: true);
+
+        try
+        {
+            dllStream.Position = 0;
+            Assembly assembly;
+
+            try
+            {
+                assembly = context.LoadFromStream(dllStream);
+            }
+            catch (BadImageFormatException)
+            {
+                return PluginErrors.Version.InvalidAssembly("File không phải là .NET Assembly hợp lệ hoặc sai kiến trúc.");
+            }
+
+            // 2. Kiểm tra xem DLL có class nào implement IWorkflowPlugin không
+            Type? pluginType = null;
+            try
+            {
+                // Dùng GetTypes() trong Try-Catch để bắt mẻ lưới ReflectionTypeLoadException
+                pluginType = assembly.GetTypes()
+                    .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t)
+                                         && !t.IsInterface && !t.IsAbstract && t.IsClass);
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                // Nếu có lỗi, .NET sẽ nhét các chi tiết lỗi vào mảng LoaderExceptions
+                var loaderErrors = ex.LoaderExceptions
+                    .Where(e => e != null)
+                    .Select(e => e!.Message)
+                    .Distinct()
+                    .ToList();
+
+                string detailedError = string.Join(" | ", loaderErrors);
+
+                // Trả về thẳng cho màn hình Postman/UI biết tại sao DLL của họ rác
+                return PluginErrors.Version.InvalidAssembly($"DLL chứa Type không hợp lệ. Chi tiết: {detailedError}");
+            }
+
+            if (pluginType == null)
+            {
+                return PluginErrors.Version.MissingInterface; // Hoặc trả về Error chuẩn của bạn
+            }
+
+            // 3. AUTO-DISCOVERY: Trích xuất Schema ngay tại đây!
+            // Bỏ qua Constructor để tránh lỗi thiếu Dependency (ILogger, DbContext...)
+            var uninitializedObject = FormatterServices.GetUninitializedObject(pluginType);
+            var pluginInstance = uninitializedObject as IWorkflowPlugin;
+
+            string schemaStr = pluginInstance?.InputSchema ?? "{}";
+            var schemaDoc = JsonDocument.Parse(string.IsNullOrWhiteSpace(schemaStr) ? "{}" : schemaStr);
+
+            // 4. Trả về Schema thành công
+            return Result.Success(schemaDoc);
+        }
+        catch (Exception ex)
+        {
+            return Error.Unexpected("PluginValidator.Exception", ex.Message);
+        }
+        finally
+        {
+            // 5. Dọn dẹp context, trả lại RAM cho hệ thống
             context.Unload();
         }
     }

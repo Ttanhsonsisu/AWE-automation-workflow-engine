@@ -7,11 +7,12 @@ using MassTransit;
 
 namespace AWE.Wokrer.Engine.Consumers;
 
-public class PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logger, IPluginRegistry pluginRegistry, PluginLoader pluginLoader) : IConsumer<CompensatePluginCommand>
+public class PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logger, IPluginRegistry pluginRegistry, PluginLoader pluginLoader, PluginCacheManager pluginCacheManager) : IConsumer<CompensatePluginCommand>
 {
     private readonly ILogger<PluginCompensationConsumer> _logger = logger;
     private readonly IPluginRegistry _registry = pluginRegistry;
     private readonly PluginLoader _pluginLoader = pluginLoader;
+    private readonly PluginCacheManager _pluginCacheManager = pluginCacheManager;
 
     public async Task Consume(ConsumeContext<CompensatePluginCommand> context)
     {
@@ -38,7 +39,7 @@ public class PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logg
             switch (msg.ExecutionMode)
             {
                 case PluginExecutionMode.DynamicDll:
-                    compResult = await _pluginLoader.CompensatePluginAsync(msg.DllPath!, msg.Payload, context.CancellationToken);
+                    compResult = await _pluginCacheManager.CompensatePluginAsync(msg.DllPath!, msg.Payload, context.CancellationToken);
                     break;
                 case PluginExecutionMode.RemoteGrpc:
                     throw new NotImplementedException("gRPC Remote Runner is not supported yet.");

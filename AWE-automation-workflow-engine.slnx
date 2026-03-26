@@ -24,7 +24,9 @@
     <Project Path="src/Workers/AWE.Worker/AWE.Worker.csproj" />
     <Project Path="src/Workers/AWE.Wokrer.Engine/AWE.Wokrer.Engine.csproj" />
   </Folder>
-  <Folder Name="/tests/" />
+  <Folder Name="/tests/">
+    <Project Path="test/plugin-test-upload/plugin-test-upload.csproj" Id="745e4600-4c86-47b9-a0b8-a59a48bad5b2" />
+  </Folder>
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/AWE.Contracts/AWE.Contracts.csproj" />
     <Project Path="src/BuildingBlocks/AWE.ServiceDefaults/AWE.ServiceDefaults.csproj" />

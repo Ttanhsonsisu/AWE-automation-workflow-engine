@@ -85,6 +85,14 @@ public class PointerDispatcher(IVariableResolver resolver,
 
         string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
 
+        string? executionMetadataJson = null;
+        if (stepDef.TryGetProperty("ExecutionMetadata", out var metaElem))
+        {
+            executionMetadataJson = metaElem.ValueKind == JsonValueKind.Object
+                                    ? metaElem.GetRawText()
+                                    : metaElem.GetString();
+        }
+
         // update pointer status to Running before dispatching to ensure visibility in case of quick execution
         return new ExecutePluginCommand(
             InstanceId: instance.Id,
@@ -93,7 +101,8 @@ public class PointerDispatcher(IVariableResolver resolver,
             StepType: stepType,
             Payload: resolvedPayload,
             ExecutionMode: executionMode,
-            DllPath: dllPath
+            DllPath: dllPath,
+            ExecutionMetadataJson: executionMetadataJson
         );
 
     }
