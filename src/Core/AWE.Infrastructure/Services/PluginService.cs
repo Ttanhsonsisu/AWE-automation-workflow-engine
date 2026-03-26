@@ -17,13 +17,15 @@ public class PluginService(
     IPluginVersionRepository versions,
     IUnitOfWork uow,
     IStorageService storage,
-    IPluginValidator validator) : IPluginService
+    IPluginValidator validator,
+    AWE.Application.Abstractions.CoreEngine.IPluginRegistry pluginRegistry) : IPluginService
 {
     private readonly IPluginPackageRepository _packages = packages;
     private readonly IPluginVersionRepository _versions = versions;
     private readonly IUnitOfWork _uow = uow;
     private readonly IStorageService _storage = storage;
     private readonly IPluginValidator _validator = validator;
+    private readonly AWE.Application.Abstractions.CoreEngine.IPluginRegistry _pluginRegistry = pluginRegistry;
 
     // -------- Package --------
 
@@ -57,6 +59,77 @@ public class PluginService(
         return Result.Success<IReadOnlyList<PluginPackageDto>>(dtos);
     }
 
+    public async Task<Result<IReadOnlyList<CatalogGroupDto>>> GetCatalogAsync(CancellationToken ct = default)
+    {
+        var catalog = new List<CatalogItemDto>();
+
+        var builtInPlugins = _pluginRegistry.GetAllPlugins();
+        var builtInItems = builtInPlugins.Select(p => new CatalogItemDto(
+            PackageId: null,
+            ActiveVersion: "Built-in",
+            Name: p.Name,
+            DisplayName: p.DisplayName,
+            Description: p.Description,
+            Category: p.Category,
+            Icon: p.Icon,
+            ExecutionMode: PluginExecutionMode.BuiltIn.ToString(),
+            InputSchema: ParseSchema(p.InputSchema),
+            OutputSchema: ParseSchema(p.OutputSchema)
+        ));
+
+        catalog.AddRange(builtInItems);
+
+        var customPackages = await _packages.ListAsync(ct);
+
+        foreach (var pkg in customPackages)
+        {
+            var latestActiveVersion = pkg.Versions
+                .Where(v => v.IsActive)
+                .MaxBy(v => v.CreatedAt);
+
+            if (latestActiveVersion == null) continue;
+
+            catalog.Add(new CatalogItemDto(
+                PackageId: pkg.Id,
+                ActiveVersion: latestActiveVersion.Version,
+                Name: pkg.UniqueName,
+                DisplayName: pkg.DisplayName,
+                Description: pkg.Description,
+                Category: pkg.Category ?? "Custom",
+                Icon: pkg.Icon ?? "lucide-box",
+                ExecutionMode: pkg.ExecutionMode.ToString(),
+                InputSchema: latestActiveVersion.ConfigSchema?.RootElement ?? ParseSchema("{}"),
+                OutputSchema: ParseSchema("{}")
+            ));
+        }
+
+        var groupedCatalog = catalog
+            .OrderBy(p => p.Category)
+            .ThenBy(p => p.DisplayName)
+            .GroupBy(p => p.Category)
+            .Select(g => new CatalogGroupDto(g.Key, g.ToList()))
+            .ToList();
+
+        return Result.Success<IReadOnlyList<CatalogGroupDto>>(groupedCatalog);
+    }
+
+    private JsonElement ParseSchema(string schemaString)
+    {
+        if (string.IsNullOrWhiteSpace(schemaString))
+            schemaString = "{}";
+
+        try
+        {
+            using var doc = JsonDocument.Parse(schemaString);
+            return doc.RootElement.Clone();
+        }
+        catch
+        {
+            using var doc = JsonDocument.Parse("{}");
+            return doc.RootElement.Clone();
+        }
+    }
+
     // -------- Version --------
 
     public async Task<Result<PluginVersionDto>> UploadVersionAsync(
@@ -68,6 +141,7 @@ public class PluginService(
         string? releaseNotes = null,
         CancellationToken ct = default)
     {
+
         var pkg = await _packages.GetByIdAsync(packageId, ct);
         if (pkg is null) return PluginErrors.Package.NotFound(packageId);
 
@@ -88,7 +162,15 @@ public class PluginService(
             return Result.Failure<PluginVersionDto>(validationResult.Error!);
         }
 
-        JsonDocument configSchema = validationResult.Value;
+        var extracted = validationResult.Value;
+
+        // Cập nhật Metadata cho Package từ thông tin trích xuất được 
+        pkg.UpdateMetadata(
+            displayName: extracted.DisplayName,
+            description: extracted.Description,
+            category: extracted.Category,
+            icon: extracted.Icon
+        );
 
         // 1. Tính SHA256
         ms.Position = 0;
@@ -97,7 +179,7 @@ public class PluginService(
         // 3. Upload lên Storage
         ms.Position = 0;
         var safeFileName = SanitizeFileName(fileName);
-        var objectKey = $"plugins/{pkg.UniqueName}/{version}/{sha256}.dll";
+        var objectKey = $"plugins/{pkg.UniqueName}/{sha256}.dll";
 
         try
         {
@@ -109,22 +191,23 @@ public class PluginService(
         }
 
         // 4. Đóng gói ExecutionMetadata
-        var metadata = new { Bucket = bucket, ObjectKey = objectKey, Sha256 = sha256, Size = ms.Length };
+        var metadata = new {
+            PluginType = extracted.Name,
+            Bucket = bucket,
+            ObjectKey = objectKey,
+            Sha256 = sha256,
+            Size = ms.Length
+        };
+
         var metadataJson = JsonSerializer.SerializeToDocument(metadata);
 
         var entity = new PluginVersion(
             packageId: packageId,
             version: version,
             executionMetadata: metadataJson,
-            configSchema: configSchema,
+            configSchema: extracted.InputSchema,
             releaseNotes: releaseNotes
         );
-
-        // Đảm bảo chỉ có 1 bản Active
-        foreach (var v in pkg.Versions)
-        {
-            v.Deactivate();
-        }
 
         await _versions.AddAsync(entity, ct);
         await _uow.SaveChangesAsync(ct);

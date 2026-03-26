@@ -4,10 +4,20 @@ using AWE.Shared.Primitives;
 
 namespace AWE.Application.Abstractions.Validation;
 
+public record PluginExtractionResult(
+    string Name, 
+    string DisplayName,
+    string Description,
+    string Category,
+    string Icon,
+    JsonDocument InputSchema,
+    JsonDocument OutputSchema
+);
+
 public interface IPluginValidator
 {
     Result<PluginMetadataDto> ValidateAssembly(Stream dllStream);
 
-    Result<JsonDocument> ValidateAndExtractSchema(Stream dllStream);
+    Result<PluginExtractionResult> ValidateAndExtractSchema(Stream dllStream);
 
 }

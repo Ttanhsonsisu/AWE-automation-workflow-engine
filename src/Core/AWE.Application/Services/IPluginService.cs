@@ -19,6 +19,8 @@ public interface IPluginService
 
     Task<Result<IReadOnlyList<PluginPackageDto>>> ListPackagesAsync(CancellationToken ct = default);
 
+    Task<Result<IReadOnlyList<CatalogGroupDto>>> GetCatalogAsync(CancellationToken ct = default);
+
     // Version
     Task<Result<PluginVersionDto>> UploadVersionAsync(
         Guid packageId,

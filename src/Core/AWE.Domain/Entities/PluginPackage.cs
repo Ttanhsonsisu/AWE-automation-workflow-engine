@@ -39,7 +39,12 @@ public class PluginPackage : AuditableEntity
     // Private constructor for EF Core
     private PluginPackage() : base() { }
 
-    public PluginPackage(string uniqueName, string displayName, PluginExecutionMode executionMode, string category = "Custom", string icon = "lucide-box", string? description = null)
+    public PluginPackage(string uniqueName,
+        string displayName,
+        PluginExecutionMode executionMode,
+        string category = "Custom",
+        string icon = "lucide-box",
+        string? description = null)
             : base()
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
@@ -71,6 +76,14 @@ public class PluginPackage : AuditableEntity
         Icon = icon;
         Description = description;
         MarkAsUpdated();
+    }
+
+    public void UpdateMetadata(string displayName, string? description, string category, string icon)
+    {
+        DisplayName = displayName;
+        Description = description;
+        Category = string.IsNullOrWhiteSpace(category) ? "Custom" : category;
+        Icon = string.IsNullOrWhiteSpace(icon) ? "lucide-box" : icon;
     }
 
     public void UpdateDescription(string? description)

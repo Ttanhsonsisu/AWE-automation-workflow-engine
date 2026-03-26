@@ -61,7 +61,7 @@ public class PluginValidator : IPluginValidator
         }
     }
 
-    public Result<JsonDocument> ValidateAndExtractSchema(Stream dllStream)
+    public Result<PluginExtractionResult> ValidateAndExtractSchema(Stream dllStream)
     {
         // 1. Tạo Context riêng để load DLL (isCollectible = true để chống Memory Leak)
         var context = new AssemblyLoadContext("ValidationAndExtractionContext", isCollectible: true);
@@ -106,7 +106,7 @@ public class PluginValidator : IPluginValidator
 
             if (pluginType == null)
             {
-                return PluginErrors.Version.MissingInterface; // Hoặc trả về Error chuẩn của bạn
+                return PluginErrors.Version.MissingInterface; 
             }
 
             // 3. AUTO-DISCOVERY: Trích xuất Schema ngay tại đây!
@@ -114,11 +114,27 @@ public class PluginValidator : IPluginValidator
             var uninitializedObject = FormatterServices.GetUninitializedObject(pluginType);
             var pluginInstance = uninitializedObject as IWorkflowPlugin;
 
-            string schemaStr = pluginInstance?.InputSchema ?? "{}";
-            var schemaDoc = JsonDocument.Parse(string.IsNullOrWhiteSpace(schemaStr) ? "{}" : schemaStr);
+            string name = pluginInstance?.Name ?? "Unknown";
+            string displayName = pluginInstance?.DisplayName ?? name;
+            string description = pluginInstance?.Description ?? "";
+            string category = pluginInstance?.Category ?? "Custom";
+            string icon = pluginInstance?.Icon ?? "lucide-box";
 
-            // 4. Trả về Schema thành công
-            return Result.Success(schemaDoc);
+            // Xử lý an toàn cho JSON
+            string inSchemaStr = string.IsNullOrWhiteSpace(pluginInstance?.InputSchema) ? "{}" : pluginInstance.InputSchema;
+            string outSchemaStr = string.IsNullOrWhiteSpace(pluginInstance?.OutputSchema) ? "{}" : pluginInstance.OutputSchema;
+
+            var resultData = new PluginExtractionResult(
+                Name: name,
+                DisplayName: displayName,
+                Description: description,
+                Category: category,
+                Icon: icon,
+                InputSchema: JsonDocument.Parse(inSchemaStr),
+                OutputSchema: JsonDocument.Parse(outSchemaStr)
+            );
+
+            return Result.Success(resultData);
         }
         catch (Exception ex)
         {

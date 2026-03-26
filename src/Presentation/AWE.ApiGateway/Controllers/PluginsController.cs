@@ -35,7 +35,14 @@ public class PluginsController(IPluginService pluginService) : ApiController
         return HandleResult(result);
     }
 
-    // Versions 
+    [HttpGet("catalog")]
+    public async Task<IActionResult> GetPluginCatalog(CancellationToken ct)
+    {
+        var result = await _pluginService.GetCatalogAsync(ct);
+        return HandleResult(result);
+    }
+
+    // Versions
     [HttpPost("packages/{packageId:guid}/versions")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UploadVersion(
