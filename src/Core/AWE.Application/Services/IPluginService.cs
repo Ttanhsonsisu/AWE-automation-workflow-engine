@@ -33,6 +33,13 @@ public interface IPluginService
 
     Task<Result<Stream>> DownloadVersionAsync(Guid versionId, CancellationToken ct = default);
 
+    Task<Result<PluginDetailDto>> GetPluginDetailsAsync(
+        PluginExecutionMode mode,
+        string? name,
+        Guid? packageId,
+        string? version,
+        CancellationToken ct = default);
+
     Task<Result<IReadOnlyList<PluginVersionDto>>> ListVersionsAsync(Guid packageId, CancellationToken ct = default);
 
     Task<Result> ActivateVersionAsync(Guid versionId, CancellationToken ct = default);

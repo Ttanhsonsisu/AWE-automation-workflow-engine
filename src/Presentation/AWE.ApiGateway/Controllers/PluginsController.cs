@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using AWE.ApiGateway.Dtos.Requests;
 using AWE.Application.Services;
+using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 using Microsoft.AspNetCore.Mvc;
 
@@ -118,6 +119,18 @@ public class PluginsController(IPluginService pluginService) : ApiController
         CancellationToken ct = default)
     {
         var result = await _pluginService.DeleteVersionAsync(versionId, deleteObject, ct);
+        return HandleResult(result);
+    }
+
+    [HttpGet("details")]
+    public async Task<IActionResult> GetPluginDetails(
+        [FromQuery] PluginExecutionMode mode,
+        [FromQuery] string? name,
+        [FromQuery] Guid? packageId,
+        [FromQuery] string? version,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.GetPluginDetailsAsync(mode, name, packageId, version, ct);
         return HandleResult(result);
     }
 }

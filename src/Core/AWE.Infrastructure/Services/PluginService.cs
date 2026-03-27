@@ -60,6 +60,52 @@ public class PluginService(
         return Result.Success<IReadOnlyList<PluginPackageDto>>(dtos);
     }
 
+    public async Task<Result<PluginDetailDto>> GetPluginDetailsAsync(
+        PluginExecutionMode mode, string? name, Guid? packageId, string? version, CancellationToken ct = default)
+    {
+        if (mode == PluginExecutionMode.BuiltIn)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return Result.Failure<PluginDetailDto>(Error.Validation("MissingName", "Built-in plugin requires 'name'."));
+
+            var plugin = _pluginRegistry.GetPlugin(name);
+            return new PluginDetailDto(
+                Name: plugin.Name, DisplayName: plugin.DisplayName, ExecutionMode: mode.ToString(), Version: null, ExecutionMetadata: null,
+                InputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(plugin.InputType)),
+                OutputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(plugin.OutputType))
+            );
+        }
+
+        if (mode == PluginExecutionMode.DynamicDll)
+        {
+            if (packageId == null)
+                return Result.Failure<PluginDetailDto>(Error.Validation("MissingPackageId", "Custom plugin requires 'packageId'."));
+
+            var pkg = await _packages.GetByIdAsync(packageId.Value, ct);
+            if (pkg == null) return PluginErrors.Package.NotFound(packageId.Value);
+
+            var targetVersion = string.IsNullOrWhiteSpace(version)
+                ? pkg.Versions.FirstOrDefault(v => v.IsActive)
+                : pkg.Versions.FirstOrDefault(v => v.Version == version);
+
+            if (targetVersion == null)
+                return Result.Failure<PluginDetailDto>(Error.NotFound("VersionNotFound", "No active version found."));
+
+            var outSchema = targetVersion.ExecutionMetadata.RootElement.TryGetProperty("OutputSchema", out var schemaProp)
+            ? schemaProp.Clone()
+            : ParseSchema("{}");
+
+            return new PluginDetailDto(
+                Name: pkg.UniqueName, DisplayName: pkg.DisplayName, ExecutionMode: mode.ToString(), Version: targetVersion.Version,
+                ExecutionMetadata: targetVersion.ExecutionMetadata.RootElement,
+                InputSchema: targetVersion.ConfigSchema?.RootElement ?? ParseSchema("{}"),
+                OutputSchema: outSchema
+            );
+        }
+
+        return Result.Failure<PluginDetailDto>(Error.Validation("InvalidMode", "Unsupported Execution Mode."));
+    }
+
     public async Task<Result<IReadOnlyList<CatalogGroupDto>>> GetCatalogAsync(CancellationToken ct = default)
     {
         var catalog = new List<CatalogItemDto>();
@@ -197,7 +243,8 @@ public class PluginService(
             Bucket = bucket,
             ObjectKey = objectKey,
             Sha256 = sha256,
-            Size = ms.Length
+            Size = ms.Length,
+            OutputSchema = extracted.OutputSchema
         };
 
         var metadataJson = JsonSerializer.SerializeToDocument(metadata);
@@ -250,7 +297,10 @@ public class PluginService(
     public async Task<Result> DeleteVersionAsync(Guid versionId, bool deleteObject = true, CancellationToken ct = default)
     {
         var ver = await _versions.GetByIdAsync(versionId, ct);
-        if (ver is null) return PluginErrors.Version.NotFound(versionId);
+        if (ver is null)
+        {
+            return PluginErrors.Version.NotFound(versionId);
+        }
 
         if (deleteObject)
         {
