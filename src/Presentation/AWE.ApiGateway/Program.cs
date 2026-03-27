@@ -34,6 +34,16 @@ builder.Services.AddAweApplication();
 //builder.Services.AddAweObjectStorage(builder.Configuration);
 
 
+// config cors to allow frontend to call API (adjust as needed for production)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+        policy.AllowAnyOrigin()   // Cho phép tất cả các nguồn
+              .AllowAnyHeader()   // Cho phép bất kỳ header nào
+              .AllowAnyMethod());  // Cho phép tất cả các phương thức HTTP
+});
+
+
 // ------------------------------------------------------------
 // Web API configuration
 // ------------------------------------------------------------
@@ -66,6 +76,7 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
+app.UseCors("AllowAll");
 app.MapControllers();
 
 
