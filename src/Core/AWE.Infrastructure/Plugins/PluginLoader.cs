@@ -1,6 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
 using AWE.Application.Services;
-using AWE.Sdk;
+using AWE.Sdk.v2;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

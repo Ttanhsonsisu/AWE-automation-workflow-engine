@@ -1,6 +1,11 @@
-﻿using AWE.Sdk;
+﻿using AWE.Sdk.v2;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
+
+public class JoinOutput
+{
+    public string? Message { get; set; }
+}
 
 public class JoinPlugin : IWorkflowPlugin
 {
@@ -10,17 +15,8 @@ public class JoinPlugin : IWorkflowPlugin
     public string Category => "Logic";
     public string Icon => "lucide-git-merge"; 
 
-    // Join không cần input gì từ user cả
-    public string InputSchema => "{}";
-
-    public string OutputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "Message": { "type": "string" }
-      }
-    }
-    """;
+    public Type? InputType => null;
+    public Type? OutputType => typeof(JoinOutput);
 
     public Task<PluginResult> ExecuteAsync(PluginContext context)
     {

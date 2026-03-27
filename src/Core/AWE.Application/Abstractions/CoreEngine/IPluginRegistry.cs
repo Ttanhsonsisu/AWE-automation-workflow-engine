@@ -1,9 +1,10 @@
 ﻿using AWE.Sdk;
+using AWE.Sdk.v2;
 
 namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface IPluginRegistry
 {
-    IWorkflowPlugin GetPlugin(string name);
-    IEnumerable<IWorkflowPlugin> GetAllPlugins();
+    Sdk.v2.IWorkflowPlugin GetPlugin(string name);
+    IEnumerable<Sdk.v2.IWorkflowPlugin> GetAllPlugins();
 }

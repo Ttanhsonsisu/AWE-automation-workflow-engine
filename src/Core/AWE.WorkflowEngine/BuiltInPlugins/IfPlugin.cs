@@ -1,6 +1,18 @@
-﻿using AWE.Sdk;
+﻿using AWE.Sdk.v2;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
+
+public class IfConditionInput
+{
+    public string? Value1 { get; set; }
+    public string? Operator { get; set; }
+    public string? Value2 { get; set; }
+}
+
+public class IfConditionOutput
+{
+    public bool IsMatch { get; set; }
+}
 
 public class IfPlugin : IWorkflowPlugin
 {
@@ -10,31 +22,8 @@ public class IfPlugin : IWorkflowPlugin
     public string Category => "Logic";
     public string Icon => "lucide-git-branch";
 
-    public string InputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "value1": { "type": "string", "title": "Giá trị A" },
-        "operator": { 
-            "type": "string", 
-            "title": "Toán tử", 
-            "enum": ["==", "!=", ">", "<", "contains"],
-            "default": "=="
-        },
-        "value2": { "type": "string", "title": "Giá trị B" }
-      },
-      "required": ["value1", "operator", "value2"]
-    }
-    """;
-
-    public string OutputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "IsMatch": { "type": "boolean", "title": "Kết quả khớp" }
-      }
-    }
-    """;
+    public Type? InputType => typeof(IfConditionInput);
+    public Type? OutputType => typeof(IfConditionOutput);
 
     public Task<PluginResult> ExecuteAsync(PluginContext context)
     {

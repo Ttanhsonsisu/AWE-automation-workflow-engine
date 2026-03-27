@@ -2,16 +2,15 @@
 using AWE.Contracts.Messages;
 using AWE.Domain.Enums;
 using AWE.Infrastructure.Plugins;
-using AWE.Sdk;
+using AWE.Sdk.v2;
 using MassTransit;
 
 namespace AWE.Wokrer.Engine.Consumers;
 
-public class PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logger, IPluginRegistry pluginRegistry, PluginLoader pluginLoader, PluginCacheManager pluginCacheManager) : IConsumer<CompensatePluginCommand>
+public class PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logger, IPluginRegistry pluginRegistry, PluginCacheManager pluginCacheManager) : IConsumer<CompensatePluginCommand>
 {
     private readonly ILogger<PluginCompensationConsumer> _logger = logger;
     private readonly IPluginRegistry _registry = pluginRegistry;
-    private readonly PluginLoader _pluginLoader = pluginLoader;
     private readonly PluginCacheManager _pluginCacheManager = pluginCacheManager;
 
     public async Task Consume(ConsumeContext<CompensatePluginCommand> context)
@@ -33,19 +32,25 @@ public class PluginCompensationConsumer(ILogger<PluginCompensationConsumer> logg
         try
         {
             PluginResult compResult;
-            var pluginContext = new PluginContext(msg.Payload, context.CancellationToken);
-
             // Thêm logic điều hướng Dynamic DLL y hệt lúc Execute
             switch (msg.ExecutionMode)
             {
                 case PluginExecutionMode.DynamicDll:
-                    compResult = await _pluginCacheManager.CompensatePluginAsync(msg.DllPath!, msg.Payload, context.CancellationToken);
+                    compResult = await _pluginCacheManager.CompensatePluginAsync(
+                        metadataJson: msg.ExecutionMetadata ?? "{}",
+                        payload: msg.Payload,
+                        context.CancellationToken);
                     break;
                 case PluginExecutionMode.RemoteGrpc:
                     throw new NotImplementedException("gRPC Remote Runner is not supported yet.");
                 case PluginExecutionMode.BuiltIn:
                 default:
-                    var plugin = _registry.GetPlugin(msg.StepType);
+                    var plugin = pluginRegistry.GetPlugin(msg.StepType);
+                    if (plugin == null)
+                        throw new Exception($"Không tìm thấy Built-in plugin: {msg.StepType}");
+
+                    // 3. Chỉ khởi tạo Context khi thực sự chạy Built-in
+                    var pluginContext = new PluginContext(msg.Payload, context.CancellationToken);
                     compResult = await plugin.CompensateAsync(pluginContext);
                     break;
             }
