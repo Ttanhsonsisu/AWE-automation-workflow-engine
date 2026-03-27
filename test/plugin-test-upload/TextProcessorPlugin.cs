@@ -1,6 +1,17 @@
-﻿using AWE.Sdk;
+﻿using AWE.Sdk.v2;
 
 namespace AWE.Plugins.Samples;
+
+public class TextProcessorInput
+{
+    public string? Text { get; set; }
+    public string? Operation { get; set; }
+}
+
+public class TextProcessorOutput
+{
+    public string? Result { get; set; }
+}
 
 public class TextProcessorPlugin : IWorkflowPlugin
 {
@@ -16,34 +27,8 @@ public class TextProcessorPlugin : IWorkflowPlugin
     // ==========================================
     // 2. AUTO-DISCOVERY SCHEMA (Cho UI Designer render Form)
     // ==========================================
-    public string InputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "text": { 
-          "type": "string", 
-          "title": "Văn bản đầu vào",
-          "description": "Nhập chữ hoặc dùng biến {{Data.Field}}"
-        },
-        "operation": {
-          "type": "string",
-          "title": "Phép biến đổi",
-          "enum": ["UPPER", "LOWER", "REVERSE"],
-          "default": "UPPER"
-        }
-      },
-      "required": ["text", "operation"]
-    }
-    """;
-
-    public string OutputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "result": { "type": "string", "title": "Kết quả" }
-      }
-    }
-    """;
+    public Type? InputType => typeof(TextProcessorInput);
+    public Type? OutputType => typeof(TextProcessorOutput);
 
     // ==========================================
     // 3. LOGIC THỰC THI CHÍNH

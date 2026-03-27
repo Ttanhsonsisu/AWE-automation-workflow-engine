@@ -56,7 +56,9 @@ public class WorkflowCompensationService(
                 }
             }
 
-            string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
+            string? executionMetadata = stepDef.TryGetProperty("ExecutionMetadata", out var metaElem)
+                ? metaElem.GetRawText()
+                : null;
 
             // update: Đối với Rollback, chúng ta sẽ luôn gửi lệnh CompensatePluginCommand,
             // và bên Plugin sẽ tự quyết định có thực hiện rollback logic hay không dựa trên payload & execution mode
@@ -67,7 +69,7 @@ public class WorkflowCompensationService(
                 StepType: stepType,
                 Payload: rollbackPayload,
                 ExecutionMode: executionMode,
-                DllPath: dllPath
+                ExecutionMetadata: executionMetadata
             ));
 
             _logger.LogInformation("Dispatched Rollback Command for Step {StepId} ({StepType}) via Mode {Mode}", pointer.StepId, stepType, executionMode);

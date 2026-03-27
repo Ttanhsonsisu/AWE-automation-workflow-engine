@@ -3,6 +3,7 @@ using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Application.Abstractions.Validation;
 using AWE.Application.Dtos.PluginDtos;
+using AWE.Application.Extensions;
 using AWE.Application.Services;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
@@ -73,8 +74,8 @@ public class PluginService(
             Category: p.Category,
             Icon: p.Icon,
             ExecutionMode: PluginExecutionMode.BuiltIn.ToString(),
-            InputSchema: ParseSchema(p.InputSchema),
-            OutputSchema: ParseSchema(p.OutputSchema)
+            InputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(p.InputType)),
+        OutputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(p.OutputType))
         ));
 
         catalog.AddRange(builtInItems);

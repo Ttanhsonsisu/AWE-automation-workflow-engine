@@ -4,8 +4,9 @@ using System.Runtime.Serialization;
 using System.Text.Json;
 using AWE.Application.Abstractions.Validation;
 using AWE.Application.Dtos.PluginDtos;
+using AWE.Application.Extensions;
 using AWE.Domain.Errors;
-using AWE.Sdk; 
+using AWE.Sdk.v2;
 using AWE.Shared.Primitives;
 
 namespace AWE.Infrastructure.Validation;
@@ -121,8 +122,8 @@ public class PluginValidator : IPluginValidator
             string icon = pluginInstance?.Icon ?? "lucide-box";
 
             // Xử lý an toàn cho JSON
-            string inSchemaStr = string.IsNullOrWhiteSpace(pluginInstance?.InputSchema) ? "{}" : pluginInstance.InputSchema;
-            string outSchemaStr = string.IsNullOrWhiteSpace(pluginInstance?.OutputSchema) ? "{}" : pluginInstance.OutputSchema;
+            string inSchemaStr = PluginSchemaGenerator.GenerateSchema(pluginInstance.InputType);
+            string outSchemaStr = PluginSchemaGenerator.GenerateSchema(pluginInstance.OutputType);
 
             var resultData = new PluginExtractionResult(
                 Name: name,

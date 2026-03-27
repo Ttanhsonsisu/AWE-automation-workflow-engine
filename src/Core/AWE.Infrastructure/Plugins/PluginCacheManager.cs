@@ -1,11 +1,19 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using AWE.Application.Services;
-using AWE.Sdk;
+using AWE.Sdk.v2;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.Infrastructure.Plugins;
+
+// DTO Định kiểu rõ ràng cho Metadata để tránh lỗi Magic String
+public record PluginExecutionMetadata(
+    string Bucket,
+    string ObjectKey,
+    string Sha256,
+    string PluginType // Đã được thêm vào ở bước Auto-Discovery trước đó
+);
 
 public class CachedPluginContext
 {
@@ -48,25 +56,29 @@ public class PluginCacheManager
     private async Task<PluginResult> RunPluginAsync(string metadataJson, string payload, CancellationToken ct, bool isCompensation)
     {
         // 1. Đọc Metadata
-        var metaDoc = JsonDocument.Parse(metadataJson).RootElement;
-        string bucket = metaDoc.GetProperty("Bucket").GetString()!;
-        string objectKey = metaDoc.GetProperty("ObjectKey").GetString()!;
-        string sha256 = metaDoc.GetProperty("Sha256").GetString()!;
+        var meta = JsonSerializer.Deserialize<PluginExecutionMetadata>(metadataJson, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
 
-        // 2. Kéo Plugin Type từ Cache (Hoặc nạp mới nếu chưa có)
-        var cachedContext = await GetOrLoadPluginTypeAsync(bucket, objectKey, sha256, ct);
+        if (meta == null || string.IsNullOrEmpty(meta.Sha256))
+        {
+            return PluginResult.Failure("ExecutionMetadata không hợp lệ hoặc thiếu Sha256.");
+        }
 
-        // Cập nhật thời gian truy cập để tránh bị dọn rác
+        // 2. Lấy từ RAM hoặc Tải về
+        var cachedContext = await GetOrLoadPluginTypeAsync(meta, ct);
         cachedContext.LastAccessedAt = DateTime.UtcNow;
 
-        // 3. THỰC THI (Tạo Instance mới cho MỖI request để Thread-Safe và dùng đúng Scoped DI)
+        // 3. THỰC THI (Luôn dùng Scope mới để DI an toàn)
         using var scope = _serviceProvider.CreateScope();
 
         if (ActivatorUtilities.CreateInstance(scope.ServiceProvider, cachedContext.PluginType) is not IWorkflowPlugin pluginInstance)
         {
-            return PluginResult.Failure("Lỗi khởi tạo Plugin. Kiểm tra lại Constructor.");
+            return PluginResult.Failure($"Không thể khởi tạo Plugin type: {cachedContext.PluginType.Name}");
         }
 
+        // Truyền payload đã được phân giải (resolved) vào Context
         var pluginContext = new PluginContext(payload, ct);
 
         try
@@ -77,63 +89,70 @@ public class PluginCacheManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "🔥 Lỗi Runtime khi chạy Plugin (SHA256: {Sha256})", sha256);
-            throw; // Quăng lỗi để Consumer bắt và bắn Event
+            _logger.LogError(ex, "🔥 Lỗi Runtime khi chạy Plugin (SHA256: {Sha256}, Type: {Type})", meta.Sha256, meta.PluginType);
+            throw;
         }
     }
 
-    private async Task<CachedPluginContext> GetOrLoadPluginTypeAsync(string bucket, string objectKey, string sha256, CancellationToken ct)
+    private async Task<CachedPluginContext> GetOrLoadPluginTypeAsync(PluginExecutionMetadata meta, CancellationToken ct)
     {
-        // CACHE HIT (RAM): Trả về ngay lập tức (~0ms)
-        if (_hotPlugins.TryGetValue(sha256, out var hotContext)) return hotContext;
+        if (_hotPlugins.TryGetValue(meta.Sha256, out var hotContext)) return hotContext;
 
-        var asyncLock = _downloadLocks.GetOrAdd(sha256, _ => new SemaphoreSlim(1, 1));
+        var asyncLock = _downloadLocks.GetOrAdd(meta.Sha256, _ => new SemaphoreSlim(1, 1));
         await asyncLock.WaitAsync(ct);
 
         try
         {
-            // Double-check lock
-            if (_hotPlugins.TryGetValue(sha256, out hotContext)) return hotContext;
+            // Double-check
+            if (_hotPlugins.TryGetValue(meta.Sha256, out hotContext)) return hotContext;
 
-            // Đường dẫn Cache trên ổ cứng: /app/PluginCache/{sha256}/
-            string cacheDir = Path.Combine(AppContext.BaseDirectory, "PluginCache", sha256);
+            string cacheDir = Path.Combine(AppContext.BaseDirectory, "PluginCache", meta.Sha256);
             if (!Directory.Exists(cacheDir)) Directory.CreateDirectory(cacheDir);
 
-            string localDllPath = Path.Combine(cacheDir, Path.GetFileName(objectKey));
+            // Bỏ version ra khỏi đường dẫn vật lý theo chuẩn Deduplication chúng ta đã chốt
+            string localDllPath = Path.Combine(cacheDir, $"{meta.Sha256}.dll");
 
-            // LỚP CACHE 1 (DISK): Tải từ MinIO nếu ổ cứng chưa có
+            // CACHE LAYER 1 (DISK)
             if (!File.Exists(localDllPath))
             {
-                _logger.LogInformation("⬇️ Downloading Plugin {Sha256} từ Storage...", sha256);
-                using var minioStream = await _storageService.GetObjectAsync(bucket, objectKey, ct);
+                _logger.LogInformation("⬇️ Downloading Plugin {Sha256} từ Storage...", meta.Sha256);
+                using var minioStream = await _storageService.GetObjectAsync(meta.Bucket, meta.ObjectKey, ct);
                 using var fileStream = new FileStream(localDllPath, FileMode.Create, FileAccess.Write, FileShare.None);
                 await minioStream.CopyToAsync(fileStream, ct);
             }
 
-            // NẠP VÀO RAM bằng PluginLoadContext của bạn
-            _logger.LogInformation("🔥 Nạp Plugin {Sha256} vào RAM...", sha256);
+            // NẠP VÀO RAM
+            _logger.LogInformation("🔥 Nạp Plugin {Sha256} vào RAM...", meta.Sha256);
             var alc = new PluginLoadContext(localDllPath);
             var assembly = alc.LoadFromAssemblyPath(localDllPath);
 
-            var pluginType = assembly.GetTypes()
+            // TỐI ƯU: Lấy thẳng Type từ Name lưu trong DB, thay vì quét toàn bộ DLL
+            Type? pluginType = null;
+            if (!string.IsNullOrEmpty(meta.PluginType))
+            {
+                pluginType = assembly.GetType(meta.PluginType);
+            }
+
+            // Fallback: Lỡ DB không có PluginType thì mới quét (Dành cho các version cũ)
+            pluginType ??= assembly.GetTypes()
                 .FirstOrDefault(t => typeof(IWorkflowPlugin).IsAssignableFrom(t) && !t.IsAbstract && t.IsClass);
 
             if (pluginType == null)
             {
                 alc.Unload();
-                throw new Exception("Không tìm thấy class implement IWorkflowPlugin trong DLL.");
+                throw new Exception($"Không tìm thấy Plugin Type '{meta.PluginType}' trong DLL.");
             }
 
             var newContext = new CachedPluginContext
             {
-                Sha256 = sha256,
+                Sha256 = meta.Sha256,
                 Alc = alc,
                 PluginType = pluginType,
                 CacheDirectory = cacheDir,
                 LastAccessedAt = DateTime.UtcNow
             };
 
-            _hotPlugins.TryAdd(sha256, newContext);
+            _hotPlugins.TryAdd(meta.Sha256, newContext);
             return newContext;
         }
         finally
@@ -154,7 +173,7 @@ public class PluginCacheManager
         {
             if (_hotPlugins.TryRemove(plugin.Sha256, out _))
             {
-                _logger.LogInformation("🧹 Dọn dẹp RAM và Xóa thư mục Cache của Plugin {Sha256}", plugin.Sha256);
+                _logger.LogInformation("Dọn dẹp RAM và Xóa thư mục Cache của Plugin {Sha256}", plugin.Sha256);
 
                 // 1. Nhả ALC
                 plugin.Alc.Unload();
@@ -164,6 +183,14 @@ public class PluginCacheManager
                 {
                     try { Directory.Delete(plugin.CacheDirectory, true); }
                     catch { /* Bỏ qua lỗi khóa file nếu có */ }
+                }
+            }
+
+            foreach (var key in _downloadLocks.Keys)
+            {
+                if (!_hotPlugins.ContainsKey(key) && _downloadLocks.TryRemove(key, out var sem))
+                {
+                    sem.Dispose();
                 }
             }
         }

@@ -89,7 +89,7 @@ public static class DependencyInjection
 
         // Service
         services.AddAweObjectStorage(configuration);
-        services.AddSingleton<PluginLoader>();
+        //services.AddSingleton<PluginLoader>();
         services.AddSingleton<PluginCacheManager>();
         services.AddSingleton<IStorageService, MinioStorageService>();
         services.AddScoped<IPluginValidator, PluginValidator>();

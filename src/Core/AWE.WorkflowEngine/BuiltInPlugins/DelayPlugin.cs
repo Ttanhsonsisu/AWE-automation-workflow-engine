@@ -1,6 +1,11 @@
-﻿using AWE.Sdk;
+﻿using AWE.Sdk.v2;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
+
+public class DelayInput
+{
+    public int Seconds { get; set; } = 60;
+}
 
 public class DelayPlugin : IWorkflowPlugin
 {
@@ -10,22 +15,8 @@ public class DelayPlugin : IWorkflowPlugin
     public string Category => "Core";
     public string Icon => "lucide-timer";
 
-    public string InputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "seconds": { 
-          "type": "integer", 
-          "title": "Thời gian chờ (Giây)",
-          "default": 60,
-          "minimum": 1
-        }
-      },
-      "required": ["seconds"]
-    }
-    """;
-
-    public string OutputSchema => "{}";
+    public Type? InputType => typeof(DelayInput);
+    public Type? OutputType => null;
 
     public Task<PluginResult> ExecuteAsync(PluginContext context)
         => Task.FromResult(PluginResult.Success());

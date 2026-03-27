@@ -1,7 +1,17 @@
-﻿using AWE.Sdk;
+﻿using AWE.Sdk.v2;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
+
+public class LogInput 
+{
+    public string? Msg { get; set; }
+}
+
+public class LogOutput 
+{
+    public string? LogStatus { get; set; }
+}
 
 public class LogPlugin(ILogger<LogPlugin> logger) : IWorkflowPlugin
 {
@@ -13,29 +23,8 @@ public class LogPlugin(ILogger<LogPlugin> logger) : IWorkflowPlugin
     public string Category => "Core";
     public string Icon => "lucide-terminal";
 
-
-    public string InputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "msg": { 
-          "type": "string", 
-          "title": "Nội dung Log",
-          "description": "Hỗ trợ truyền biến. VD: {{Steps.Start.Output.Data}}" 
-        }
-      },
-      "required": ["msg"]
-    }
-    """;
-
-    public string OutputSchema => """
-    {
-      "type": "object",
-      "properties": {
-        "LogStatus": { "type": "string" }
-      }
-    }
-    """;
+    public Type? InputType => typeof(LogInput);
+    public Type? OutputType => typeof(LogOutput);
 
     public Task<PluginResult> ExecuteAsync(PluginContext context)
     {

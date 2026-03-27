@@ -2,10 +2,26 @@
 using AWE.Application.Abstractions.Persistence;
 using AWE.Application.Services;
 using AWE.Domain.Entities; 
-using AWE.Sdk;
+using AWE.Sdk.v2;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
+
+public class ApprovalInput
+{
+    public List<string>? Channels { get; set; }
+    public string? ApproverEmail { get; set; }
+    public string? TelegramChatId { get; set; }
+    public string? Title { get; set; }
+    public string? Message { get; set; }
+}
+
+public class ApprovalOutput
+{
+    public bool IsApproved { get; set; }
+    public string? Reason { get; set; }
+    public string? ApproverName { get; set; }
+}
 
 public class ApprovalPlugin : IWorkflowPlugin
 {
@@ -43,36 +59,8 @@ public class ApprovalPlugin : IWorkflowPlugin
     public string Category => "Human Interaction";
     public string Icon => "UserCheck";
 
-    // Json Schema định nghĩa Form để UI vẽ ra (nhập email, chọn kênh...)
-    public string InputSchema => """
-    {
-        "type": "object",
-        "properties": {
-            "Channels": { 
-                "type": "array", 
-                "items": { "type": "string", "enum": ["Email", "Telegram", "Zalo"] },
-                "title": "Kênh thông báo"
-            },
-            "ApproverEmail": { "type": "string", "format": "email", "title": "Email người duyệt" },
-            "TelegramChatId": { "type": "string", "title": "ID Chat Telegram" },
-            "Title": { "type": "string", "title": "Tiêu đề yêu cầu" },
-            "Message": { "type": "string", "title": "Nội dung yêu cầu" }
-        },
-        "required": ["Channels", "Title"]
-    }
-    """;
-
-    // Json Schema định nghĩa Output để các Node sau có thể lấy dữ liệu ($.Steps.Approve1.Output.IsApproved)
-    public string OutputSchema => """
-    {
-        "type": "object",
-        "properties": {
-            "IsApproved": { "type": "boolean", "title": "Quyết định (Đồng ý/Từ chối)" },
-            "Reason": { "type": "string", "title": "Lý do phê duyệt/từ chối" },
-            "ApproverName": { "type": "string", "title": "Tên người duyệt" }
-        }
-    }
-    """;
+    public Type? InputType => typeof(ApprovalInput);
+    public Type? OutputType => typeof(ApprovalOutput);
 
     // ========================================================
     // 2. LOGIC THỰC THI CHÍNH (EXECUTE)
