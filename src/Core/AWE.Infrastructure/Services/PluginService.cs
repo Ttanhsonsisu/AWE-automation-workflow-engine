@@ -288,10 +288,25 @@ public class PluginService(
     {
         // Kiểm tra package tồn tại trước
         if (!await _packages.ExistsAsync(packageId, ct))
+        {
             return PluginErrors.Package.NotFound(packageId);
+        }
         var list = await _versions.ListByPackageIdAsync(packageId, ct);
         var dtos = list.Select(Map).ToList();
         return Result.Success<IReadOnlyList<PluginVersionDto>>(dtos);
+    }
+
+    public async Task<Result<IReadOnlyList<string>>> ListVersionPackageDropDownAsyn(Guid packageId, CancellationToken ct = default)
+    {
+        if (!await _packages.ExistsAsync(packageId, ct))
+        {
+            return PluginErrors.Package.NotFound(packageId);
+        }
+
+        var list = await _versions.ListByPackageIdAsync(packageId, ct);
+        var dtos = list.Select(x => x.Version).ToList();
+
+        return Result.Success<IReadOnlyList<string>>(dtos);
     }
 
     public async Task<Result> DeleteVersionAsync(Guid versionId, bool deleteObject = true, CancellationToken ct = default)

@@ -1,11 +1,20 @@
-﻿using AWE.Sdk.v2;
+﻿using System.Text.Json.Serialization;
+using AWE.Sdk.v2;
 
 namespace AWE.Plugins.Samples;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TextOperation
+{
+    UPPER,
+    LOWER,
+    REVERSE
+}
 
 public class TextProcessorInput
 {
     public string? Text { get; set; }
-    public string? Operation { get; set; }
+    public TextOperation? Operation { get; set; }
 }
 
 public class TextProcessorOutput

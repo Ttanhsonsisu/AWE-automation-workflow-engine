@@ -42,6 +42,7 @@ public interface IPluginService
 
     Task<Result<IReadOnlyList<PluginVersionDto>>> ListVersionsAsync(Guid packageId, CancellationToken ct = default);
 
+    Task<Result<IReadOnlyList<string>>> ListVersionPackageDropDownAsyn(Guid packageId, CancellationToken ct = default);
     Task<Result> ActivateVersionAsync(Guid versionId, CancellationToken ct = default);
     Task<Result> DeactivateVersionAsync(Guid versionId, CancellationToken ct = default);
     Task<Result> DeleteVersionAsync(Guid versionId, bool deleteObject = true, CancellationToken ct = default);
