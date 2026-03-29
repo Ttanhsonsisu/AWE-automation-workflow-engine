@@ -29,7 +29,7 @@ public class LogPlugin(ILogger<LogPlugin> logger) : IWorkflowPlugin
     public Task<PluginResult> ExecuteAsync(PluginContext context)
     {
         // Sử dụng Helper Get<T> của bạn rất tiện lợi
-        var msg = context.Get<string>("msg") ?? "No message";
+        var msg = context.Get<string>("Msg") ?? "No message";
         _logger.LogInformation("[LogPlugin] EXECUTE: {Msg}", msg);
 
         return Task.FromResult(PluginResult.Success(new Dictionary<string, object>

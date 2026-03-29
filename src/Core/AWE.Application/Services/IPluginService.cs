@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using AWE.Application.Dtos.PluginDtos;
+using AWE.Application.Dtos.WorkflowDto;
 using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 

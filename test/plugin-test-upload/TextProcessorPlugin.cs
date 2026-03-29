@@ -47,8 +47,8 @@ public class TextProcessorPlugin : IWorkflowPlugin
         try
         {
             // Lấy dữ liệu từ Payload thông qua PluginContext
-            var text = context.Get<string>("text");
-            var operation = context.Get<string>("operation");
+            var text = context.Get<string>("Text");
+            var operation = context.Get<string>("Operation");
 
             if (string.IsNullOrWhiteSpace(text))
             {

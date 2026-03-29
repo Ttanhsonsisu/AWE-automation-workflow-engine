@@ -3,6 +3,7 @@ using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Application.Abstractions.Validation;
 using AWE.Application.Dtos.PluginDtos;
+using AWE.Application.Dtos.WorkflowDto;
 using AWE.Application.Extensions;
 using AWE.Application.Services;
 using AWE.Domain.Entities;
@@ -380,5 +381,4 @@ public class PluginService(
         var cleaned = string.Join("_", fileName.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
         return string.IsNullOrWhiteSpace(cleaned) ? "plugin.dll" : cleaned;
     }
-
 }

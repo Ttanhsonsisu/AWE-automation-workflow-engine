@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using AWE.Sdk.Extension;
 
 namespace AWE.Sdk.v2;
 
@@ -34,11 +35,11 @@ public class PluginContext
     {
         if (Root.ValueKind != JsonValueKind.Object) return default;
 
-        if (Root.TryGetProperty(key, out var element))
+        if (Root.TryGetPropertyCaseInsensitive(key, out var element))
         {
             try
             {
-                return element.Deserialize<T>();
+                return element.Deserialize<T>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             }
             catch
             {

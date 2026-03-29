@@ -89,6 +89,7 @@ public static class DependencyInjection
 
         // Service
         services.AddAweObjectStorage(configuration);
+        services.AddScoped<IWorkflowService, WorkflowService>();
         //services.AddSingleton<PluginLoader>();
         services.AddSingleton<PluginCacheManager>();
         services.AddSingleton<IStorageService, MinioStorageService>();
