@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 using AWE.Application.Abstractions.CoreEngine;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
@@ -90,10 +91,28 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
         try
         {
             // Bơm PointerId và InstanceId vào Payload để Plugin có thể dùng
-            var payloadDict = JsonSerializer.Deserialize<Dictionary<string, object>>(cmd.Payload) ?? new();
-            payloadDict["PointerId"] = cmd.ExecutionPointerId.ToString();
-            payloadDict["InstanceId"] = cmd.InstanceId.ToString();
-            var enrichedPayload = JsonSerializer.Serialize(payloadDict);
+            // fix cứng trường hợp Payload là string hoặc null, array đảm bảo luôn có object để nhồi metadata, tránh lỗi khi plugin cố gắng đọc dữ liệu
+            JsonObject payloadObj;
+            try
+            {
+                var raw = string.IsNullOrWhiteSpace(cmd.Payload) ? "{}" : cmd.Payload;
+                var parsedNode = JsonNode.Parse(raw);
+
+                // Đảm bảo nó là Object (Nếu lỡ nó là Array thì bọc nó lại, hoặc gán mới)
+                payloadObj = parsedNode as JsonObject ?? new JsonObject();
+            }
+            catch (JsonException)
+            {
+                // Nếu payload lỗi cú pháp JSON, ta tự tạo object mới để nhồi metadata, tránh crash Worker
+                payloadObj = new JsonObject();
+                _logger.LogWarning("Payload is not a valid JSON object. Created an empty object to inject metadata.");
+            }
+
+            // Bơm thông tin hệ thống vào
+            payloadObj["PointerId"] = cmd.ExecutionPointerId.ToString();
+            payloadObj["InstanceId"] = cmd.InstanceId.ToString();
+
+            var enrichedPayload = payloadObj.ToJsonString();
 
             // DYNAMIC ROUTER: Phân luồng thực thi (Hybrid Architecture)
             PluginResult pluginResult;

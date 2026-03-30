@@ -128,7 +128,18 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
 
         try
         {
-            string resolvedExpression = _resolver.Resolve(conditionExpression, context);
+            var resolveResult = _resolver.Resolve(conditionExpression, context);
+
+            if (!resolveResult.IsSuccess)
+            {
+                // Nếu thiếu biến trong câu điều kiện (VD: {{Steps.Node1.Output.Score}} > 5 nhưng Node1 không trả về Score)
+                // Ta log lại lỗi và trả về false (ngắt luồng rẽ nhánh này - Dead path)
+                _logger.LogWarning("⚠️ Condition Evaluation aborted. Missing variables: {Errors}. Expression: {Exp}",
+                    resolveResult.ErrorMessage, conditionExpression);
+                return false;
+            }
+
+            string resolvedExpression = resolveResult.ResolvedPayload;
 
             // [FIX] Cấu hình Jint Sandbox: Timeout 2s, Limit RAM 4MB để chống hack/crash
             var engine = new Engine(options =>
