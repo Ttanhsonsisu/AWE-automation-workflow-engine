@@ -9,6 +9,7 @@ using AWE.Application.Services;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Domain.Errors;
+using AWE.Infrastructure.Persistence.Repositories;
 using AWE.Shared.Primitives;
 using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 
@@ -97,7 +98,10 @@ public class PluginService(
             : ParseSchema("{}");
 
             return new PluginDetailDto(
-                Name: pkg.UniqueName, DisplayName: pkg.DisplayName, ExecutionMode: mode.ToString(), Version: targetVersion.Version,
+                Name: pkg.UniqueName,
+                DisplayName: pkg.DisplayName,
+                ExecutionMode: mode.ToString(),
+                Version: targetVersion.Version,
                 ExecutionMetadata: targetVersion.ExecutionMetadata.RootElement,
                 InputSchema: targetVersion.ConfigSchema?.RootElement ?? ParseSchema("{}"),
                 OutputSchema: outSchema
@@ -105,6 +109,46 @@ public class PluginService(
         }
 
         return Result.Failure<PluginDetailDto>(Error.Validation("InvalidMode", "Unsupported Execution Mode."));
+    }
+
+    public async Task<Result<PluginDetailDtoSha256>> GetDetailsBySha256Async(string sha256, CancellationToken ct = default)
+    {
+        // 1. Validate đầu vào
+        if (string.IsNullOrWhiteSpace(sha256))
+            return Result.Failure<PluginDetailDtoSha256>(Error.Validation("MissingSha256", "Plugin sha256 is required."));
+
+        var normalizedSha = sha256.Trim().ToLowerInvariant();
+
+        // 2. TỐI ƯU SIÊU TỐC: Gọi thẳng xuống DB để tìm đúng 1 Version duy nhất
+        // Lưu ý: Repository của bạn cần Include bảng Package vào luôn (Include(v => v.Package))
+        var targetVersion = await _versions.GetBySha256Async(normalizedSha, ct);
+
+        if (targetVersion is null || targetVersion.Package is null)
+            return Result.Failure<PluginDetailDtoSha256>(Error.NotFound("PluginVersion.NotFoundBySha256", $"No plugin version found with sha256 '{normalizedSha}'."));
+
+        var pkg = targetVersion.Package;
+
+        // 3. Xử lý an toàn OutputSchema
+        var outSchema = targetVersion.ExecutionMetadata.RootElement.TryGetProperty("OutputSchema", out var schemaProp)
+            ? schemaProp.Clone() // Clone ngay cho an toàn
+            : ParseSchema("{}");
+
+        // 4. Map DTO chuẩn xác
+        return new PluginDetailDtoSha256(
+            Name: pkg.UniqueName,
+            PackageId: targetVersion.PackageId,
+            Icon: pkg.Icon,
+            Category: pkg.Category, // ĐÃ FIX BUG: Trả lại tên cho em (trước là pkg.Icon)
+            Description: pkg.Description ?? "",
+            DisplayName: pkg.DisplayName,
+            ExecutionMode: PluginExecutionMode.DynamicDll.ToString(),
+            Version: targetVersion.Version,
+
+            // ĐÃ FIX LỖI BỘ NHỚ: Thêm .Clone() để tránh ObjectDisposedException
+            ExecutionMetadata: targetVersion.ExecutionMetadata.RootElement.Clone(),
+            InputSchema: targetVersion.ConfigSchema?.RootElement.Clone() ?? ParseSchema("{}"),
+            OutputSchema: outSchema
+        );
     }
 
     public async Task<Result<IReadOnlyList<CatalogGroupDto>>> GetCatalogAsync(CancellationToken ct = default)

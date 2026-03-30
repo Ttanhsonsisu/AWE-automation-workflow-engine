@@ -133,4 +133,13 @@ public class PluginsController(IPluginService pluginService) : ApiController
         var result = await _pluginService.GetPluginDetailsAsync(mode, name, packageId, version, ct);
         return HandleResult(result);
     }
+
+    [HttpGet("details/by-sha256/{sha256}")]
+    public async Task<IActionResult> GetPluginDetailsByHash(
+       [FromRoute] string sha256,
+       CancellationToken ct)
+    {
+        var result = await _pluginService.GetDetailsBySha256Async(sha256, ct);
+        return HandleResult(result);
+    }
 }

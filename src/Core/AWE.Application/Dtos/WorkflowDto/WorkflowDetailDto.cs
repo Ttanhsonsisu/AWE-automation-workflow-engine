@@ -6,6 +6,7 @@ public record WorkflowDetailDto
 (
     Guid Id,
     string Name,
+    string? Description,
     bool? IsPublished,
     JsonElement Definition, // Bọc toàn bộ Node, Edge, Canvas viewport vào đây
     JsonElement? UiJson

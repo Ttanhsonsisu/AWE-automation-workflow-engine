@@ -29,4 +29,9 @@ public class PluginVersionRepository(ApplicationDbContext db) : IPluginVersionRe
         => await _db.PluginVersions
             .Where(x => x.PackageId == packageId && x.IsActive)
             .ToListAsync(ct);
+
+    public async Task<PluginVersion?> GetBySha256Async(string sha256, CancellationToken ct)
+    {
+        return await _db.PluginVersions.Include(x => x.Package).FirstOrDefaultAsync(x => x.ExecutionMetadata.RootElement.GetProperty("Sha256").GetString() == sha256, ct);
+    }
 }

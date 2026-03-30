@@ -5,6 +5,7 @@ using AWE.Application.UseCases.Executions.GetExecutions;
 using AWE.Application.UseCases.Executions.ResumeExecution;
 using AWE.Application.UseCases.Executions.RetryExecution;
 using AWE.Application.UseCases.Executions.SuspendExecution;
+using AWE.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
@@ -16,10 +17,22 @@ public class ExecutionController : ApiController
     public async Task<IActionResult> GetExecutions(
         [FromQuery] int page,
         [FromQuery] int size,
+        [FromQuery] Guid[]? definitionIds,
+        [FromQuery] WorkflowInstanceStatus? status,
+        [FromQuery] DateTime? createdFrom,
+        [FromQuery] DateTime? createdTo,
         [FromServices] IGetExecutionsUseCase useCase,
         CancellationToken cancellationToken)
     {
-        var request = new GetExecutionsRequest { Page = page, Size = size };
+        var request = new GetExecutionsRequest
+        {
+            Page = page,
+            Size = size,
+            DefinitionIds = definitionIds,
+            Status = status,
+            CreatedFrom = createdFrom,
+            CreatedTo = createdTo
+        };
         var result = await useCase.ExecuteAsync(request, cancellationToken);
         return HandleResult(result);
     }

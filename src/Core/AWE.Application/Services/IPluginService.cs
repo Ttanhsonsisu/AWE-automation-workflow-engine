@@ -40,7 +40,7 @@ public interface IPluginService
         Guid? packageId,
         string? version,
         CancellationToken ct = default);
-
+    Task<Result<PluginDetailDtoSha256>> GetDetailsBySha256Async(string sha256, CancellationToken ct = default);
     Task<Result<IReadOnlyList<PluginVersionDto>>> ListVersionsAsync(Guid packageId, CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<string>>> ListVersionPackageDropDownAsyn(Guid packageId, CancellationToken ct = default);

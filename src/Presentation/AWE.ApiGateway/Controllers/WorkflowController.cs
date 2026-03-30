@@ -33,6 +33,22 @@ public class WorkflowController : ApiController
         return HandleResult(result);
     }
 
+    [HttpGet("definitions")]
+    public async Task<IActionResult> GetDefinitions(
+        [FromQuery] int pageSize = 30,
+        [FromQuery] int pageNo = 1,
+        [FromQuery] bool? isPublished = null,
+        [FromQuery] string? name = null,
+        [FromQuery] bool groupVersion = false,
+        CancellationToken ct = default)
+    {
+        if (groupVersion)
+        {
+            return HandleResult(await _workflowService.GetPagingGroupVersionWorkflowAsync(pageSize, pageNo, isPublished, name, ct));
+        }
+
+        return HandleResult(await _workflowService.GetPagingWorkflowAsync(pageSize, pageNo, isPublished, name, ct));
+    }
 
     [HttpPost]
     public async Task<IActionResult> SubmitWorkflow([FromBody] SubmitRequest request, [FromServices] ApplicationDbContext dbcontext)
