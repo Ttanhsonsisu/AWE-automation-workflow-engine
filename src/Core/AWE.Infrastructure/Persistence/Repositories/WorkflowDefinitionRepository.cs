@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using AWE.Application.Abstractions.Persistence;
+using AWE.Application.Dtos.WorkflowDto;
 using AWE.Application.UseCases.Monitor.Daskboard;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
@@ -97,6 +98,105 @@ public class WorkflowDefinitionRepository(ApplicationDbContext _context) : IWork
             return await _context.WorkflowDefinitions.CountAsync(cancellationToken);
 
         return await _context.WorkflowDefinitions.CountAsync(predicate, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WorkflowDefinition>> GetDefinitionsAsync(
+        int skip,
+        int take,
+        bool? isPublished = null,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await ApplyFilters(_context.WorkflowDefinitions.AsNoTracking(), isPublished, name)
+            .OrderBy(x => x.Name)
+            .ThenByDescending(x => x.Version)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<long> CountDistinctNamesAsync(
+        bool? isPublished = null,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await ApplyFilters(_context.WorkflowDefinitions.AsNoTracking(), isPublished, name)
+            .Select(x => x.Name)
+            .Distinct()
+            .LongCountAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> GetDefinitionNamesAsync(
+        int skip,
+        int take,
+        bool? isPublished = null,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await ApplyFilters(_context.WorkflowDefinitions.AsNoTracking(), isPublished, name)
+            .Select(x => x.Name)
+            .Distinct()
+            .OrderBy(x => x)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WorkflowDefinition>> GetDefinitionsByNamesAsync(
+        IReadOnlyCollection<string> names,
+        bool? isPublished = null,
+        string? name = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (names.Count == 0)
+        {
+            return [];
+        }
+
+        return await ApplyFilters(_context.WorkflowDefinitions.AsNoTracking(), isPublished, name)
+            .Where(x => names.Contains(x.Name))
+            .OrderBy(x => x.Name)
+            .ThenByDescending(x => x.Version)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WorkflowExecutionStatusAggregate>> GetExecutionStatusAggregatesAsync(
+        IReadOnlyCollection<Guid> definitionIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (definitionIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _context.WorkflowInstances
+            .AsNoTracking()
+            .Where(x => definitionIds.Contains(x.DefinitionId))
+            .GroupBy(x => new { x.DefinitionId, x.Status })
+            .Select(g => new WorkflowExecutionStatusAggregate(
+                g.Key.DefinitionId,
+                g.Key.Status,
+                g.Count()))
+            .ToListAsync(cancellationToken);
+    }
+
+    private static IQueryable<WorkflowDefinition> ApplyFilters(
+        IQueryable<WorkflowDefinition> query,
+        bool? isPublished,
+        string? name)
+    {
+        if (isPublished.HasValue)
+        {
+            query = query.Where(x => x.IsPublished == isPublished.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            var keyword = name.Trim();
+            query = query.Where(x => x.Name.Contains(keyword));
+        }
+
+        return query;
     }
 
     public async Task<DashboardMetricsResponse> GetDashboardMetricsAsync(CancellationToken cancellationToken = default)

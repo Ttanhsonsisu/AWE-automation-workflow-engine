@@ -280,6 +280,12 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("category");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -294,6 +300,18 @@ namespace AWE.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("display_name");
+
+                    b.Property<string>("ExecutionMode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("execution_mode");
+
+                    b.Property<string>("Icon")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("icon");
 
                     b.Property<DateTime?>("LastUpdated")
                         .HasColumnType("timestamp with time zone")
@@ -321,12 +339,6 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<string>("Bucket")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("bucket");
-
                     b.Property<JsonDocument>("ConfigSchema")
                         .HasColumnType("jsonb")
                         .HasColumnName("config_schema");
@@ -334,6 +346,11 @@ namespace AWE.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<JsonDocument>("ExecutionMetadata")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("execution_metadata");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
@@ -343,12 +360,6 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_updated");
 
-                    b.Property<string>("ObjectKey")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("object_key");
-
                     b.Property<Guid>("PackageId")
                         .HasColumnType("uuid")
                         .HasColumnName("package_id");
@@ -357,21 +368,6 @@ namespace AWE.Infrastructure.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("release_notes");
-
-                    b.Property<string>("Sha256")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("sha256");
-
-                    b.Property<long>("Size")
-                        .HasColumnType("bigint")
-                        .HasColumnName("size");
-
-                    b.Property<string>("StorageProvider")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("storage_provider");
 
                     b.Property<string>("Version")
                         .IsRequired()
@@ -469,6 +465,10 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("definition_json");
 
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
                     b.Property<bool>("IsPublished")
                         .HasColumnType("boolean")
                         .HasColumnName("is_published");
@@ -530,6 +530,10 @@ namespace AWE.Infrastructure.Migrations
                     b.Property<int>("DefinitionVersion")
                         .HasColumnType("integer")
                         .HasColumnName("definition_version");
+
+                    b.Property<DateTime?>("EndTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_time");
 
                     b.Property<DateTime?>("LastUpdated")
                         .HasColumnType("timestamp with time zone")

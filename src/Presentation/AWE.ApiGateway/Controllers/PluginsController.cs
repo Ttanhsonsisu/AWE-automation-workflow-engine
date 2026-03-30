@@ -1,7 +1,8 @@
 ﻿using System.Text.Json;
-using AWE.ApiGateway.Dtos.Requests; 
+using AWE.ApiGateway.Dtos.Requests;
 using AWE.Application.Services;
-using AWE.Shared.Primitives; 
+using AWE.Domain.Enums;
+using AWE.Shared.Primitives;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
@@ -19,10 +20,13 @@ public class PluginsController(IPluginService pluginService) : ApiController
         var result = await _pluginService.CreatePackageAsync(
             req.UniqueName,
             req.DisplayName,
+            req.ExecutionMode, 
+            req.Category ?? "Custom",
+            req.Icon ?? "lucide-box",
             req.Description,
             ct);
 
-        return HandleResult(result); 
+        return HandleResult(result);
     }
 
     [HttpGet("packages")]
@@ -32,30 +36,24 @@ public class PluginsController(IPluginService pluginService) : ApiController
         return HandleResult(result);
     }
 
-    // Versions 
+    [HttpGet("catalog")]
+    public async Task<IActionResult> GetPluginCatalog(CancellationToken ct)
+    {
+        var result = await _pluginService.GetCatalogAsync(ct);
+        return HandleResult(result);
+    }
+
+    // Versions
     [HttpPost("packages/{packageId:guid}/versions")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UploadVersion(
         [FromRoute] Guid packageId,
-        [FromForm] UploadPluginVersionRequest req,
+        [FromForm] UploadPluginVersionRequest req, 
         CancellationToken ct)
     {
         if (req.File is null || req.File.Length == 0)
         {
             return HandleFailure(Error.Validation("Request.FileRequired", "File is required."));
-        }
-
-        JsonDocument? schema = null;
-        if (!string.IsNullOrWhiteSpace(req.ConfigSchemaJson))
-        {
-            try
-            {
-                schema = JsonDocument.Parse(req.ConfigSchemaJson);
-            }
-            catch
-            {
-                return HandleFailure(Error.Validation("Request.InvalidJson", "ConfigSchemaJson is not valid JSON."));
-            }
         }
 
         using var stream = req.File.OpenReadStream();
@@ -66,7 +64,6 @@ public class PluginsController(IPluginService pluginService) : ApiController
             dllStream: stream,
             fileName: req.File.FileName,
             bucket: req.Bucket ?? "awe-plugins",
-            configSchema: schema,
             releaseNotes: req.ReleaseNotes,
             ct: ct);
 
@@ -122,6 +119,27 @@ public class PluginsController(IPluginService pluginService) : ApiController
         CancellationToken ct = default)
     {
         var result = await _pluginService.DeleteVersionAsync(versionId, deleteObject, ct);
+        return HandleResult(result);
+    }
+
+    [HttpGet("details")]
+    public async Task<IActionResult> GetPluginDetails(
+        [FromQuery] PluginExecutionMode mode,
+        [FromQuery] string? name,
+        [FromQuery] Guid? packageId,
+        [FromQuery] string? version,
+        CancellationToken ct)
+    {
+        var result = await _pluginService.GetPluginDetailsAsync(mode, name, packageId, version, ct);
+        return HandleResult(result);
+    }
+
+    [HttpGet("details/by-sha256/{sha256}")]
+    public async Task<IActionResult> GetPluginDetailsByHash(
+       [FromRoute] string sha256,
+       CancellationToken ct)
+    {
+        var result = await _pluginService.GetDetailsBySha256Async(sha256, ct);
         return HandleResult(result);
     }
 }

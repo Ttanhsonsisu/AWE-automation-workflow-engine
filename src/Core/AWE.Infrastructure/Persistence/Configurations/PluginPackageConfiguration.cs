@@ -30,6 +30,21 @@ public class PluginPackageConfiguration : IEntityTypeConfiguration<PluginPackage
         builder.Property(x => x.Description)
             .HasMaxLength(1000);
 
+        // Các cột UI Metadata cho Frontend
+        builder.Property(x => x.Category)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        builder.Property(x => x.Icon)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        // Kiểu chạy của Plugin (Nên lưu dạng chuỗi để dễ đọc trong DB, hoặc lưu số nguyên mặc định)
+        builder.Property(x => x.ExecutionMode)
+            .HasConversion<string>() // Lưu thành "DynamicDll", "RemoteGrpc" thay vì số 1, 2
+            .HasMaxLength(50)
+            .IsRequired();
+
         builder.Property(x => x.CreatedAt)
             .IsRequired();
 

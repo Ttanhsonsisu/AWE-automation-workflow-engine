@@ -5,7 +5,7 @@ using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Infrastructure.Plugins;
-using AWE.Sdk;
+using AWE.Sdk.v2;
 using AWE.Shared.Consts;
 using MassTransit;
 
@@ -18,18 +18,20 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
     private readonly IUnitOfWork _uow;
     private readonly IServiceProvider _serviceProvider;
     private readonly IPluginRegistry _registry;
-    private readonly PluginLoader _pluginLoader;
+    //private readonly PluginLoader _pluginLoader;
+    private readonly PluginCacheManager _pluginCacheManager;
 
     // Worker ID
     private readonly string _workerId = $"Worker-{Environment.MachineName}-{Guid.NewGuid().ToString()[..4]}";
 
     public PluginConsumer(
-        ILogger<PluginConsumer> logger,     
+        ILogger<PluginConsumer> logger,
         IExecutionPointerRepository pointerRepo,
         IUnitOfWork uow,
         IServiceProvider serviceProvider,
         IPluginRegistry registry,
-        PluginLoader pluginLoader
+        //PluginLoader pluginLoader,
+        PluginCacheManager pluginCacheManager
         )
     {
         _logger = logger;
@@ -37,7 +39,8 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
         _uow = uow;
         _serviceProvider = serviceProvider;
         _registry = registry;
-        _pluginLoader = pluginLoader;
+        //_pluginLoader = pluginLoader;
+        _pluginCacheManager = pluginCacheManager;
     }
 
     public async Task Consume(ConsumeContext<ExecutePluginCommand> context)
@@ -99,7 +102,12 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             switch (cmd.ExecutionMode)
             {
                 case PluginExecutionMode.DynamicDll:
-                    pluginResult = await _pluginLoader.ExecutePluginAsync(cmd.DllPath!, cmd.Payload, context.CancellationToken);
+                    if (string.IsNullOrWhiteSpace(cmd.ExecutionMetadataJson))
+                    {
+                        throw new ArgumentException("ExecutionMetadataJson is required for DynamicDll mode.");
+                    }
+
+                    pluginResult = await _pluginCacheManager.ExecutePluginAsync(cmd.ExecutionMetadataJson!, cmd.Payload, context.CancellationToken);
                     break;
 
                 case PluginExecutionMode.RemoteGrpc:
@@ -139,6 +147,8 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                     NodeId: cmd.NodeId,
                     WorkerId: Environment.MachineName
                 ));
+
+                await _uow.SaveChangesAsync();
             }
             else if (pluginResult.IsSuccess)
             {
@@ -200,9 +210,9 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
 
     private async Task HandleFailureAsync(ExecutionPointer pointer, ExecutePluginCommand cmd, string errorMsg, ConsumeContext context)
     {
-        var errorDoc = JsonDocument.Parse($"{{\"Error\": \"{errorMsg}\"}}");
+        var errorDoc = JsonSerializer.SerializeToDocument(new { Error = errorMsg });
         pointer.MarkAsFailed(_workerId, errorDoc);
-        await _uow.SaveChangesAsync();
+        //await _uow.SaveChangesAsync();
 
         await context.Publish(new StepFailedEvent(
             InstanceId: cmd.InstanceId,
@@ -210,6 +220,8 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             StepId: cmd.NodeId,
             ErrorMessage: errorMsg
         ));
+
+        await _uow.SaveChangesAsync();
     }
 
     // Logic Heartbeat Loop

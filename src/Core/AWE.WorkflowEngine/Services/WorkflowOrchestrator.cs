@@ -101,6 +101,8 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             await _publishEndpoint.Publish(cmd, ctx => ctx.SetRoutingKey(routingKey));
         }
 
+        //await _uow.SaveChangesAsync();
+
         return Result.Success(instance.Id);
     }
 
@@ -327,6 +329,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 }
             }
 
+            //await _uow.SaveChangesAsync();
             return Result.Success();
         }
         catch (Exception ex)

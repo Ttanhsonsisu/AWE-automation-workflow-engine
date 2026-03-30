@@ -1,5 +1,5 @@
 ﻿using AWE.Application.Abstractions.CoreEngine;
-using AWE.Sdk;
+using AWE.Sdk.v2;
 using AWE.WorkflowEngine.BackgroundServices;
 using AWE.WorkflowEngine.BuiltInPlugins;
 using AWE.WorkflowEngine.Services;
@@ -21,7 +21,8 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowOrchestrator, WorkflowOrchestrator>();
 
         // add backgroundservice
-        //services.AddHostedService<RecoveryBackgroundService>();
+        services.AddHostedService<RecoveryBackgroundService>();
+        services.AddHostedService<PluginGarbageCollectorService>();
         //services.AddHostedService<DelayWakeUpBackgroundService>();
         //services.AddHostedService<CronSchedulePublisherService>();
 

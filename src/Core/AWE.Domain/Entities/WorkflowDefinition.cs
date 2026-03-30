@@ -33,6 +33,8 @@ public class WorkflowDefinition : AuditableEntity
     /// Optional JSON for UI rendering (e.g., layout, node positions)
     public JsonDocument UiJson { get; set; } = null!;
 
+    public string? Description { get; set; } = string.Empty;
+
     /// <summary>
     /// Navigation property to instances
     /// </summary>

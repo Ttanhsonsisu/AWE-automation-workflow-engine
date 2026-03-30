@@ -40,8 +40,9 @@ public record ExecutePluginCommand(
     string NodeId,               // Tên bước trong JSON (VD: "Activity_1")
     string StepType,             // Loại Plugin (VD: "Http", "Email")
     string Payload,               // Dữ liệu JSON đã được Engine giải quyết biến
-    PluginExecutionMode ExecutionMode,
-    string? DllPath = null
+    PluginExecutionMode ExecutionMode = PluginExecutionMode.BuiltIn,
+    string? DllPath = null,
+    string? ExecutionMetadataJson = null
 );
 
 #endregion

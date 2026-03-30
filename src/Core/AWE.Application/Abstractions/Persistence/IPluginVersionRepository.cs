@@ -13,4 +13,6 @@ public interface IPluginVersionRepository
 
     // nếu muốn enforce "chỉ 1 active/version trong package"
     Task<IReadOnlyList<PluginVersion>> ListActiveByPackageIdAsync(Guid packageId, CancellationToken ct = default);
+
+    Task<PluginVersion?> GetBySha256Async(string sha256, CancellationToken ct);
 }

@@ -1,4 +1,5 @@
-﻿using AWE.Application.UseCases.Workflows.CloneDefinition;
+﻿using AWE.Application.Services;
+using AWE.Application.UseCases.Workflows.CloneDefinition;
 using AWE.Application.UseCases.Workflows.CreateDefinition;
 using AWE.Application.UseCases.Workflows.DeleteDefinition;
 using AWE.Application.UseCases.Workflows.ExportDefinition;
@@ -17,10 +18,36 @@ namespace AWE.ApiGateway.Controllers;
 public class WorkflowController : ApiController
 {
     private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IWorkflowService _workflowService;
 
-    public WorkflowController(IPublishEndpoint publishEndpoint)
+    public WorkflowController(IPublishEndpoint publishEndpoint, IWorkflowService workflowService)
     {
         _publishEndpoint = publishEndpoint;
+        _workflowService = workflowService;
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetDefinitions([FromRoute] Guid id, CancellationToken ct)
+    {
+        var result = await _workflowService.GetWorkflowDetailsAsync(id, ct);
+        return HandleResult(result);
+    }
+
+    [HttpGet("definitions")]
+    public async Task<IActionResult> GetDefinitions(
+        [FromQuery] int pageSize = 30,
+        [FromQuery] int pageNo = 1,
+        [FromQuery] bool? isPublished = null,
+        [FromQuery] string? name = null,
+        [FromQuery] bool groupVersion = false,
+        CancellationToken ct = default)
+    {
+        if (groupVersion)
+        {
+            return HandleResult(await _workflowService.GetPagingGroupVersionWorkflowAsync(pageSize, pageNo, isPublished, name, ct));
+        }
+
+        return HandleResult(await _workflowService.GetPagingWorkflowAsync(pageSize, pageNo, isPublished, name, ct));
     }
 
     [HttpPost]
@@ -53,13 +80,9 @@ public class WorkflowController : ApiController
         return HandleResult(result);
     }
 
-    [HttpPut("definitions/{id:guid}")]
-    public async Task<IActionResult> UpdateDefinition(Guid id, [FromBody] UpdateDefinitionRequest request, [FromServices] IUpdateDefinitionUseCase useCase, CancellationToken cancellationToken)
+    [HttpPut("definitions")]
+    public async Task<IActionResult> UpdateDefinition([FromBody] UpdateDefinitionRequest request, [FromServices] IUpdateDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
-        if (id != request.Id)
-        {
-            return BadRequest("Id in URL does not match Id in body.");
-        }
         var result = await useCase.ExecuteAsync(request, cancellationToken);
         return HandleResult(result);
     }

@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="MassTransit.RabbitMQ" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.2" />
+    <PackageReference Include="NJsonSchema" Version="11.5.2" />
   </ItemGroup>
 
 </Project>

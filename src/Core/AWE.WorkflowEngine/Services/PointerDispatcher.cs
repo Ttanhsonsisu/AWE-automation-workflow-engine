@@ -1,109 +1,94 @@
 ﻿using System.Text.Json;
 using AWE.Application.Abstractions.CoreEngine;
+using AWE.Application.Dtos.WorkflowDto;
 using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
-using AWE.Shared.Consts;
+using AWE.Shared.Extensions; 
 using MassTransit;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
 
-public class PointerDispatcher(IVariableResolver resolver,
+public class PointerDispatcher(
+    IVariableResolver resolver,
     ILogger<PointerDispatcher> logger,
     IMessageScheduler messageScheduler) : IPointerDispatcher
 {
-    private readonly IVariableResolver _resolver = resolver;
-    private readonly ILogger<PointerDispatcher> _logger = logger;
-    private readonly IMessageScheduler _messageScheduler = messageScheduler;
-
     public async Task<ExecutePluginCommand?> CreateDispatchCommand(WorkflowInstance instance, ExecutionPointer pointer, JsonDocument defJson)
     {
-        var stepDef = GetStepDefinition(defJson, pointer.StepId);
-        string stepType = stepDef.GetProperty("Type").GetString()!;
+        // 1. Dùng Model để parse toàn bộ cấu trúc dễ dàng, không sợ lệch chuẩn
+        var definition = WorkflowDefinitionModel.Parse(defJson.RootElement.GetRawText());
 
+        var stepModel = definition.Steps.FirstOrDefault(s => s.Id == pointer.StepId);
+        if (stepModel == null)
+        {
+            throw new InvalidOperationException($"Step {pointer.StepId} không tồn tại trong Definition.");
+        }
 
-        // Logic Resolve Variable
-        var rawInputs = stepDef.TryGetProperty("Inputs", out var inputsElem) ? inputsElem.GetRawText() : "{}";
-        var resolvedPayload = _resolver.Resolve(rawInputs, instance.ContextData);
+        // 2. Lấy Tên Plugin THẬT SỰ (Xuyên qua cả BuiltIn lẫn DynamicDll)
+        string actualPluginType = stepModel.GetActualPluginType();
+
+        // 3. Logic Resolve Variable (Nội suy biến)
+        var rawInputs = stepModel.Inputs.ValueKind == JsonValueKind.Object ? stepModel.Inputs.GetRawText() : "{}";
+        var resolvedPayload = resolver.Resolve(rawInputs, instance.ContextData);
+
         // =================================================================
         // FR-11: HIBERNATE (WAIT & DELAY) - KHÔNG GỬI XUỐNG WORKER
         // =================================================================
-        if (stepType == "Wait" || stepType == "Delay")
+        // Dùng StringComparison.OrdinalIgnoreCase để chống lỗi FE gửi "delay" hay "Delay"
+        if (actualPluginType.Equals("Wait", StringComparison.OrdinalIgnoreCase) ||
+            actualPluginType.Equals("Delay", StringComparison.OrdinalIgnoreCase))
         {
             pointer.Status = ExecutionPointerStatus.WaitingForEvent;
 
-            if (stepType == "Delay")
+            if (actualPluginType.Equals("Delay", StringComparison.OrdinalIgnoreCase))
             {
-                var inputDict = JsonSerializer.Deserialize<Dictionary<string, object>>(resolvedPayload) ?? new();
+                int delaySeconds = 60; 
 
-                // Giả sử input có trường "seconds" quy định số giây cần chờ
-                int delaySeconds = 60; // Mặc định 1 phút nếu không truyền
-                if (inputDict.TryGetValue("seconds", out var secObj) && int.TryParse(secObj.ToString(), out int parsedSec))
+                //fix lỗi gửi "Seconds", "seconds" hay "sEcOndS"
+                if (stepModel.Inputs.TryGetPropertyCaseInsensitive("Seconds", out var secElem))
                 {
-                    delaySeconds = parsedSec;
+                    // Lấy an toàn dù FE gửi số 5 hay chuỗi "5"
+                    if (secElem.ValueKind == JsonValueKind.Number) delaySeconds = secElem.GetInt32();
+                    else if (secElem.ValueKind == JsonValueKind.String && int.TryParse(secElem.GetString(), out int parsed)) delaySeconds = parsed;
                 }
 
                 var wakeupTime = DateTime.UtcNow.AddSeconds(delaySeconds);
 
-                await _messageScheduler.SchedulePublish(wakeupTime, new ResumeStepCommand(
+                await messageScheduler.SchedulePublish(wakeupTime, new ResumeStepCommand(
                     InstanceId: instance.Id,
                     PointerId: pointer.Id,
                     StepId: pointer.StepId
                 ));
 
-                // add time buffer 5s để đảm bảo Worker không bị đánh thức quá sớm do trễ mạng hoặc load cao
-                pointer.HibernateUntil(DateTime.UtcNow.AddSeconds(delaySeconds));
-                _logger.LogInformation("⏳ Workflow {InstanceId} HIBERNATED at Step {StepId}. Will wake up at {ResumeAt}", instance.Id, pointer.StepId, pointer.ResumeAt);
+                pointer.HibernateUntil(wakeupTime); 
+                logger.LogInformation("Workflow {InstanceId} HIBERNATED at Step {StepId}. Will wake up at {ResumeAt}", instance.Id, pointer.StepId, pointer.ResumeAt);
             }
             else
             {
-                // Với Step "Wait", chúng ta sẽ đợi API bên ngoài gọi vào Resume, nên không set HibernateUntil mà chỉ đơn giản là chuyển trạng thái và chờ.
                 pointer.PauseForWebhook();
-                _logger.LogInformation("Workflow {InstanceId} PAUSED at Step {StepId} (Waiting for Webhook).", instance.Id, pointer.StepId);
+                logger.LogInformation("Workflow {InstanceId} PAUSED at Step {StepId} (Waiting for Webhook).", instance.Id, pointer.StepId);
             }
 
             return null;
         }
 
         // =================================================================
-        // ĐỌC CẤU HÌNH EXECUTION MODE & DLL PATH
+        // ĐÓNG GÓI MESSAGE (Gửi xuống cho Worker chạy)
         // =================================================================
-        PluginExecutionMode executionMode = PluginExecutionMode.BuiltIn; // Mặc định là chạy Built-in
 
-        if (stepDef.TryGetProperty("ExecutionMode", out var modeElem))
-        {
-            if (modeElem.ValueKind == JsonValueKind.Number && modeElem.TryGetInt32(out int modeInt))
-            {
-                executionMode = (PluginExecutionMode)modeInt;
-            }
-            else if (modeElem.ValueKind == JsonValueKind.String && Enum.TryParse<PluginExecutionMode>(modeElem.GetString(), true, out var parsedMode))
-            {
-                executionMode = parsedMode;
-            }
-        }
+        // Chuẩn hóa Metadata thành String để gửi qua Message Queue
+        string? executionMetadataJson = stepModel.ExecutionMetadata?.GetRawText();
 
-        string? dllPath = stepDef.TryGetProperty("DllPath", out var dllElem) ? dllElem.GetString() : null;
-
-        // update pointer status to Running before dispatching to ensure visibility in case of quick execution
         return new ExecutePluginCommand(
             InstanceId: instance.Id,
             ExecutionPointerId: pointer.Id,
             NodeId: pointer.StepId,
-            StepType: stepType,
+            StepType: actualPluginType, 
             Payload: resolvedPayload,
-            ExecutionMode: executionMode,
-            DllPath: dllPath
+            ExecutionMode: stepModel.ExecutionMode,
+            ExecutionMetadataJson: executionMetadataJson
         );
-
-    }
-
-    private JsonElement GetStepDefinition(JsonDocument defJson, string stepId)
-    {
-        foreach (var step in defJson.RootElement.GetProperty("Steps").EnumerateArray())
-        {
-            if (step.GetProperty("Id").GetString() == stepId) return step;
-        }
-        throw new InvalidOperationException($"Step {stepId} not found");
     }
 }

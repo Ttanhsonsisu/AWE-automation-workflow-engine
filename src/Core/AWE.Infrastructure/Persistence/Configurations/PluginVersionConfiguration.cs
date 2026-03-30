@@ -26,23 +26,9 @@ public class PluginVersionConfiguration : IEntityTypeConfiguration<PluginVersion
             .HasMaxLength(50)
             .IsRequired();
 
-        builder.Property(x => x.ObjectKey)
-            .HasMaxLength(500)
-            .IsRequired();
-
-        builder.Property(x => x.Bucket)
-           .HasMaxLength(100)
-           .IsRequired();
-
-        builder.Property(x => x.Sha256)
-            .HasMaxLength(64)
-            .IsRequired();
-
-        builder.Property(x => x.StorageProvider)
-            .HasMaxLength(50)
-            .IsRequired(false);
-
-        builder.Property(x => x.Size)
+        // Magic Box chứa mọi thông tin kỹ thuật
+        builder.Property(x => x.ExecutionMetadata)
+            .HasColumnType("jsonb")
             .IsRequired();
 
         builder.Property(x => x.ConfigSchema)

@@ -9,5 +9,6 @@ public record CompensatePluginCommand(
     string StepType,
     string Payload, // Output/Input cũ để Plugin biết đường mà Rollback
     PluginExecutionMode ExecutionMode, // [THÊM]
-    string? DllPath = null             // [THÊM]
+    //string? DllPath = null,            // [THÊM]
+    string? ExecutionMetadata = null // Chuỗi JSON chứa Sha256, Bucket, PluginType...
 );

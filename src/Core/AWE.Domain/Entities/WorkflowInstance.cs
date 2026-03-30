@@ -36,6 +36,7 @@ public class WorkflowInstance : AuditableEntity
     /// When the workflow started execution
     /// </summary>
     public DateTime StartTime { get; private set; }
+    public DateTime? EndTime { get; set; }
 
     /// <summary>
     /// ID của luồng Cha (nếu đây là luồng Con)

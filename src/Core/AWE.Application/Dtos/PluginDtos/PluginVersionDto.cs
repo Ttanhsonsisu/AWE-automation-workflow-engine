@@ -1,13 +1,13 @@
-﻿namespace AWE.Application.Dtos.PluginDtos;
+﻿using System.Text.Json;
+
+namespace AWE.Application.Dtos.PluginDtos;
 
 public record PluginVersionDto(
     Guid Id,
     Guid PackageId,
     string Version,
-    string Bucket,
-    string ObjectKey,
-    string Sha256,
-    long Size,
-    string StorageProvider,
     bool IsActive,
-    string? ReleaseNotes);
+    string? ReleaseNotes,
+    // Trả về thẳng cục Magic Box cho Frontend nếu nó cần hiển thị thông số MinIO
+    JsonElement ExecutionMetadata,
+    JsonElement? ConfigSchema);

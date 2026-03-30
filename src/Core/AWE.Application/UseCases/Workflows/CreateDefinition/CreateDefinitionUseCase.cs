@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using AWE.Application.Abstractions.Persistence;
+﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Domain.Entities;
 using AWE.Shared.Primitives;
 
@@ -40,6 +37,11 @@ public class CreateDefinitionUseCase : ICreateDefinitionUseCase
             request.DefinitionJson,
             request.UiJson);
 
+        if (request.Description != null)
+        {
+            newDefinition.Description = request.Description;
+        }
+
         await _definitionRepository.AddDefinitionAsync(newDefinition, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -47,6 +49,7 @@ public class CreateDefinitionUseCase : ICreateDefinitionUseCase
         {
             Id = newDefinition.Id,
             Name = newDefinition.Name,
+            Description = newDefinition.Description,
             Version = newDefinition.Version
         });
     }
