@@ -36,7 +36,7 @@ public class WorkflowStepModel
     public JsonElement? ExecutionMetadata { get; set; }
 
     /// <summary>
-    /// 🔥 HÀM THÔNG DỊCH QUAN TRỌNG NHẤT:
+    /// HÀM THÔNG DỊCH QUAN TRỌNG NHẤT:
     /// Trả về Tên Plugin thực sự cần chạy, bất chấp FE gửi "Type" là gì.
     /// </summary>
     public string GetActualPluginType()
