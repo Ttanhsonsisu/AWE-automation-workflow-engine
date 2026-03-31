@@ -48,7 +48,7 @@ public class PointerDispatcher(
                 FailedAt = DateTime.UtcNow
             });
 
-            pointer.MarkAsFailed(pointer.Id.ToString(), errorDoc);
+            pointer.MarkAsFailedByEngine(errorDoc);
 
             // log lỗi chi tiết để dễ debug, bao gồm InstanceId, StepId và thông tin lỗi
             logger.LogError("Workflow {InstanceId} FAILED at Step {StepId}. {Error}", instance.Id, pointer.StepId, resolveResult.ErrorMessage);
@@ -73,7 +73,7 @@ public class PointerDispatcher(
                 FailedAt = DateTime.UtcNow
             });
 
-            pointer.MarkAsFailed(pointer.Id.ToString(), errorDoc);
+            pointer.MarkAsFailedByEngine(errorDoc);
 
             logger.LogError("Payload limit exceeded for Step {StepId}. Size: {Size} bytes", pointer.StepId, payloadSize);
             return null;
@@ -86,8 +86,6 @@ public class PointerDispatcher(
         if (actualPluginType.Equals("Wait", StringComparison.OrdinalIgnoreCase) ||
             actualPluginType.Equals("Delay", StringComparison.OrdinalIgnoreCase))
         {
-            pointer.Status = ExecutionPointerStatus.WaitingForEvent;
-
             if (actualPluginType.Equals("Delay", StringComparison.OrdinalIgnoreCase))
             {
                 int delaySeconds = 60;

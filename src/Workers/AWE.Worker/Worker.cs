@@ -49,27 +49,40 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
         var cmd = context.Message;
         _logger.LogInformation("🛠️ [{Worker}] START Step {Node} ({Type})", _workerId, cmd.NodeId, cmd.StepType);
 
-        // IDEMPOTENCY CHECK
-        var pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId);
+        ExecutionPointer? pointer;
 
-        if (pointer == null)
-        {
-            _logger.LogError("❌ Pointer {Id} not found.", cmd.ExecutionPointerId);
-            return;
-        }
+        var acquired = await _pointerRepo.TryAcquireLeaseAsync(
+            cmd.ExecutionPointerId,
+            _workerId,
+            TimeSpan.FromMinutes(5),
+            context.CancellationToken);
 
-        if (pointer.Status == ExecutionPointerStatus.Completed)
+        if (!acquired)
         {
-            _logger.LogWarning("⚠️ Step {Node} already completed.", cmd.NodeId);
-            return;
-        }
+            pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId, context.CancellationToken);
 
-        if (!pointer.TryAcquireLease(_workerId, TimeSpan.FromMinutes(5)))
-        {
+            if (pointer == null)
+            {
+                _logger.LogError("❌ Pointer {Id} not found.", cmd.ExecutionPointerId);
+                return;
+            }
+
+            if (pointer.Status == ExecutionPointerStatus.Completed)
+            {
+                _logger.LogWarning("⚠️ Step {Node} already completed.", cmd.NodeId);
+                return;
+            }
+
             _logger.LogWarning("⚠️ Step {Node} is locked by another worker.", cmd.NodeId);
             return;
         }
-        await _uow.SaveChangesAsync();
+
+        pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId, context.CancellationToken);
+        if (pointer == null)
+        {
+            _logger.LogError("❌ Pointer {Id} not found after lease acquisition.", cmd.ExecutionPointerId);
+            return;
+        }
 
         // 👉 SỬA: CHỈ BẮN LOG KHI ĐÃ CẦM CHẮC LEASE TRONG TAY
         await context.Publish(new WriteAuditLogCommand(
@@ -123,15 +136,15 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 case PluginExecutionMode.DynamicDll:
                     if (string.IsNullOrWhiteSpace(cmd.ExecutionMetadataJson))
                     {
-                        throw new ArgumentException("ExecutionMetadataJson is required for DynamicDll mode.");
+                        throw new NonRetryableException("ExecutionMetadataJson is required for DynamicDll mode.");
                     }
 
-                    pluginResult = await _pluginCacheManager.ExecutePluginAsync(cmd.ExecutionMetadataJson!, cmd.Payload, context.CancellationToken);
+                    pluginResult = await _pluginCacheManager.ExecutePluginAsync(cmd.ExecutionMetadataJson!, enrichedPayload, context.CancellationToken);
                     break;
 
                 case PluginExecutionMode.RemoteGrpc:
                     // TODO: Mở rộng sau. Tạm thời văng lỗi để chặn.
-                    throw new NotImplementedException("gRPC Remote Runner is coming soon!");
+                    throw new NonRetryableException("gRPC Remote Runner is coming soon!");
 
                 case PluginExecutionMode.BuiltIn:
                 default:
@@ -198,8 +211,29 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             else
             {
                 // throw error plugin 
-                throw new Exception(pluginResult.ErrorMessage ?? pluginResult.Message ?? "Plugin failed without message.");
+                throw new NonRetryableException(pluginResult.ErrorMessage ?? pluginResult.Message ?? "Plugin failed without message.");
             }
+        }
+        catch (Exception ex) when (IsRetryable(ex))
+        {
+            _logger.LogError(ex, "[{Worker}] Retryable error on Step {Node}", _workerId, cmd.NodeId);
+
+            await cts.CancelAsync();
+            try { await heartbeatTask; } catch { }
+
+            await context.Publish(new WriteAuditLogCommand(
+                InstanceId: cmd.InstanceId,
+                Event: "StepError",
+                Message: $"Lỗi tạm thời khi thực thi Node: {ex.Message}",
+                Level: Domain.Enums.LogLevel.Error,
+                ExecutionPointerId: cmd.ExecutionPointerId,
+                NodeId: cmd.NodeId,
+                WorkerId: Environment.MachineName,
+                MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString(), Retryable = true })
+            ));
+
+            await HandleFailureAsync(pointer, cmd, ex.Message, context);
+            throw new RetryableException(ex.Message, ex);
         }
         catch (Exception ex)
         {
@@ -216,15 +250,26 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 ExecutionPointerId: cmd.ExecutionPointerId,
                 NodeId: cmd.NodeId,
                 WorkerId: Environment.MachineName,
-                MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString() })
+                MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString(), Retryable = false })
             ));
             await HandleFailureAsync(pointer, cmd, ex.Message, context);
-            //throw;
+            throw new NonRetryableException(ex.Message, ex);
         }
         finally
         {
             try { await heartbeatTask; } catch (OperationCanceledException) { }
         }
+
+    }
+
+    private static bool IsRetryable(Exception ex)
+    {
+        return ex is RetryableException
+            || ex is TimeoutException
+            || ex is HttpRequestException
+            || ex is TaskCanceledException
+            || ex.InnerException is TimeoutException
+            || ex.InnerException is HttpRequestException;
     }
 
     private async Task HandleFailureAsync(ExecutionPointer pointer, ExecutePluginCommand cmd, string errorMsg, ConsumeContext context)

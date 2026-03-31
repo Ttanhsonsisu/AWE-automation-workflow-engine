@@ -42,12 +42,17 @@ public class PluginConsumerDefinition : ConsumerDefinition<PluginConsumer>
 
         // Use exponential backoff to handle unstable or slow external plugins
         // without overwhelming downstream systems.
-        endpointConfigurator.UseMessageRetry(r => r.Exponential(
-            retryLimit: 10,
-            minInterval: TimeSpan.FromSeconds(1),
-            maxInterval: TimeSpan.FromMinutes(5),
-            intervalDelta: TimeSpan.FromSeconds(2)
-        ));
+        endpointConfigurator.UseMessageRetry(r =>
+        {
+            r.Handle<RetryableException>();
+            r.Ignore<NonRetryableException>();
+            r.Exponential(
+                retryLimit: 10,
+                minInterval: TimeSpan.FromSeconds(1),
+                maxInterval: TimeSpan.FromMinutes(5),
+                intervalDelta: TimeSpan.FromSeconds(2)
+            );
+        });
 
         // =====================================================
         // OUTBOX – Duplicate message prevention

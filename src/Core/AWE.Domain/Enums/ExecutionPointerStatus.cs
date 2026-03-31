@@ -31,7 +31,7 @@ public enum ExecutionPointerStatus
     Skipped,
 
     /// <summary>
-    /// status wait event
+    /// Token is suspended and waiting for resume signal (timer/webhook/manual)
     /// </summary>
-    WaitingForEvent
+    Suspended
 }

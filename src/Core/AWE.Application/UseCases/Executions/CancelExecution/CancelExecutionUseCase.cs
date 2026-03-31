@@ -37,7 +37,7 @@ public class CancelExecutionUseCase(
 
         var activePointers = pointers.Where(p =>
             p.Status == ExecutionPointerStatus.Pending ||
-            p.Status == ExecutionPointerStatus.WaitingForEvent).ToList();
+            p.Status == ExecutionPointerStatus.Suspended).ToList();
 
         foreach (var pointer in activePointers)
         {
