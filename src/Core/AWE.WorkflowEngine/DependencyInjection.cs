@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddTransient<IWorkflowPlugin, DelayPlugin>();
         services.AddTransient<IWorkflowPlugin, JoinPlugin>();
         services.AddTransient<IWorkflowPlugin, ApprovalPlugin>();
+        services.AddTransient<IWorkflowPlugin, RetryTestPlugin>();
 
         return services;
     }

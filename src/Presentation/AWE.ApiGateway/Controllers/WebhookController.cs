@@ -44,8 +44,8 @@ public class WebhookController : ControllerBase
         if (pointer == null)
             return NotFound(new { error = "Pointer not found." });
 
-        if (pointer.Status != ExecutionPointerStatus.WaitingForEvent)
-            return BadRequest(new { error = "Pointer is not in Waiting state." });
+        if (pointer.Status != ExecutionPointerStatus.Suspended)
+            return BadRequest(new { error = "Pointer is not in Suspended state." });
 
         var instance = await _instanceRepo.GetInstanceByIdAsync(pointer.InstanceId);
 

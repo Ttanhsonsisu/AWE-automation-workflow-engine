@@ -89,7 +89,7 @@ public class WorkflowInstance : AuditableEntity
     {
         if (Status == WorkflowInstanceStatus.Completed)
             return;
-
+        EndTime = DateTime.UtcNow;
         Status = WorkflowInstanceStatus.Completed;
         MarkAsUpdated();
     }

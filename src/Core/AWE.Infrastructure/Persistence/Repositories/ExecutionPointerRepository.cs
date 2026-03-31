@@ -1,7 +1,6 @@
 ﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
-using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace AWE.Infrastructure.Persistence.Repositories;
@@ -75,6 +74,31 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
         return Task.CompletedTask;
     }
 
+    public async Task<bool> TryAcquireLeaseAsync(Guid pointerId, string workerId, TimeSpan leaseDuration, CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var leasedUntil = now.Add(leaseDuration);
+
+        var affected = await _context.Set<ExecutionPointer>()
+            .Where(x => x.Id == pointerId
+                        && x.Active
+                        && (x.Status == ExecutionPointerStatus.Pending
+                            || (x.Status == ExecutionPointerStatus.Running
+                                && x.LeasedUntil.HasValue
+                                && x.LeasedUntil.Value < now)))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, ExecutionPointerStatus.Running)
+                .SetProperty(p => p.LeasedBy, workerId)
+                .SetProperty(p => p.LeasedUntil, leasedUntil)
+                .SetProperty(p => p.RetryCount,
+                    p => p.Status == ExecutionPointerStatus.Running
+                        ? p.RetryCount + 1
+                        : p.RetryCount),
+                ct);
+
+        return affected > 0;
+    }
+
     public async Task<bool> RenewLeaseAsync(Guid pointerId, string workerId, TimeSpan extension, CancellationToken ct = default)
     {
         var affected = await _context.Set<ExecutionPointer>()
@@ -132,7 +156,7 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
             .ToListAsync();
     }
 
-    public Task<List<ExecutionPointer>> GetExpiredWaitingForEventAsync(DateTime now, CancellationToken cancellationToken = default)
+    public Task<List<ExecutionPointer>> GetExpiredSuspendedPointersAsync(DateTime now, CancellationToken cancellationToken = default)
     {
         var runningInstanceIds = _context.WorkflowInstances
             .Where(x => x.Status == WorkflowInstanceStatus.Running)
@@ -140,7 +164,7 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
 
         // 2. Lọc các Pointer đến giờ thức dậy VÀ phải thuộc về các luồng Running ở trên
         return _context.ExecutionPointers
-            .Where(p => p.Status == ExecutionPointerStatus.WaitingForEvent
+            .Where(p => p.Status == ExecutionPointerStatus.Suspended
                      && p.ResumeAt.HasValue
                      && p.ResumeAt.Value <= now
                      && runningInstanceIds.Contains(p.InstanceId)) // EF Core sẽ dịch câu này thành INNER JOIN hoặc IN (...)

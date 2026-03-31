@@ -135,6 +135,8 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         {
             _logger.LogWarning("Workflow {Id} was CANCELLED. Halting routing permanently at Step {StepId}.", instance.Id, pointer.StepId);
             pointer.MarkAsRouted();
+            // update status for instance and pointer to reflect cancellation
+            await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
             return Result.Success();
         }
@@ -152,8 +154,13 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (nextTransitions.Count == 0)
         {
             // Kết thúc Workflow
-            // instance.MarkAsCompleted(); 
+            instance.Complete();
+            pointer.MarkAsRouted();
             _logger.LogInformation("Workflow {Id} Completed successfully.", instanceId);
+
+            await _instanceRepo.UpdateInstanceAsync(instance);
+            await _uow.SaveChangesAsync();
+
             await _publishEndpoint.Publish(new WriteAuditLogCommand(
                 InstanceId: instance.Id,
                 Event: "WorkflowCompleted",
@@ -199,6 +206,9 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             await _uow.SaveChangesAsync();
 
             var pendingCommandsToPublish = new List<ExecutePluginCommand>();
+            bool engineDispatchFailed = false;
+            string failedStepId = string.Empty;
+            string? failedMetadataJson = null;
 
             // 5. Giải quyết các tụ điểm Join
             foreach (var joinNodeId in joinNodesToCheck)
@@ -209,15 +219,59 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 if (joinResult.IsBarrierBroken && joinResult.PointerToDispatch != null)
                 {
                     var cmd = await _dispatcher.CreateDispatchCommand(instance, joinResult.PointerToDispatch, def.DefinitionJson);
-                    if (cmd != null) pendingCommandsToPublish.Add(cmd);
+                    if (cmd != null)
+                    {
+                        pendingCommandsToPublish.Add(cmd);
+                    }
+                    else if (joinResult.PointerToDispatch.Status == ExecutionPointerStatus.Failed)
+                    {
+                        engineDispatchFailed = true;
+                        failedStepId = joinResult.PointerToDispatch.StepId;
+                        failedMetadataJson = joinResult.PointerToDispatch.Output?.RootElement.GetRawText();
+                        break;
+                    }
                 }
             }
 
             // 6. Gửi lệnh các đường thẳng/rẽ nhánh bình thường
-            foreach (var p in pointersToDispatch)
+            if (!engineDispatchFailed)
             {
-                var cmd = await _dispatcher.CreateDispatchCommand(instance, p, def.DefinitionJson);
-                if (cmd != null) pendingCommandsToPublish.Add(cmd);
+                foreach (var p in pointersToDispatch)
+                {
+                    var cmd = await _dispatcher.CreateDispatchCommand(instance, p, def.DefinitionJson);
+                    if (cmd != null)
+                    {
+                        pendingCommandsToPublish.Add(cmd);
+                    }
+                    else if (p.Status == ExecutionPointerStatus.Failed)
+                    {
+                        engineDispatchFailed = true;
+                        failedStepId = p.StepId;
+                        failedMetadataJson = p.Output?.RootElement.GetRawText();
+                        break;
+                    }
+                }
+            }
+
+            if (engineDispatchFailed)
+            {
+                instance.Fail();
+                instance.EndTime = DateTime.UtcNow;
+
+                await _instanceRepo.UpdateInstanceAsync(instance);
+                await _uow.SaveChangesAsync();
+
+                await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                    InstanceId: instance.Id,
+                    Event: "WorkflowFailed",
+                    Message: $"Workflow thất bại ở bước {failedStepId} do lỗi resolve/dispatch.",
+                    Level: Domain.Enums.LogLevel.Error,
+                    ExecutionPointerId: executionPointerId,
+                    NodeId: failedStepId,
+                    MetadataJson: failedMetadataJson
+                ));
+
+                return Result.Success();
             }
 
             await _uow.SaveChangesAsync();
@@ -232,6 +286,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         }
 
         // ONE SAVE TO RULE THEM ALL
+        await _instanceRepo.UpdateInstanceAsync(instance);
         await _uow.SaveChangesAsync();
         return Result.Success();
     }
@@ -282,8 +337,28 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 _logger.LogInformation("Retrying Step {StepId}...", pointer.StepId);
 
                 pointer.ResetToPending();
+                await _instanceRepo.UpdateInstanceAsync(instance);
                 await _uow.SaveChangesAsync();
                 retryCommandToPublish = await _dispatcher.CreateDispatchCommand(instance, pointer, def.DefinitionJson);
+
+                if (retryCommandToPublish == null && pointer.Status == ExecutionPointerStatus.Failed)
+                {
+                    instance.Fail();
+                    await _instanceRepo.UpdateInstanceAsync(instance);
+                    await _uow.SaveChangesAsync();
+
+                    await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                        InstanceId: instanceId,
+                        Event: "WorkflowFailed",
+                        Message: $"Node {pointer.StepId} thất bại khi tạo lệnh retry (resolve/dispatch).",
+                        Level: Domain.Enums.LogLevel.Error,
+                        ExecutionPointerId: pointerId,
+                        NodeId: pointer.StepId,
+                        MetadataJson: pointer.Output?.RootElement.GetRawText()
+                    ));
+
+                    return Result.Success();
+                }
             }
             else
             {
@@ -312,6 +387,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             // Tạm thời ở mức MVP, ta fire-and-forget
 
             // ONE SAVE TO RULE THEM ALL
+            await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
 
             if (retryCommandToPublish != null)
@@ -352,7 +428,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // =================================================================
         // FR-12: ATOMIC IDEMPOTENCY CHECK (Chống kích hoạt kép)
         // =================================================================
-        if (pointer.Status != ExecutionPointerStatus.WaitingForEvent)
+        if (pointer.Status != ExecutionPointerStatus.Suspended)
         {
             _logger.LogWarning("[IDEMPOTENCY] Pointer {Id} is in status {Status}. Resume rejected.", pointer.Id, pointer.Status);
             return Result.Success(); 
@@ -360,8 +436,13 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         // Lấy Instance chuẩn xác qua Repository
         var instance = await _instanceRepo.GetInstanceByIdAsync(pointer.InstanceId);
-        if (instance == null || instance.Status != WorkflowInstanceStatus.Running)
-            return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not running."));
+        if (instance == null)
+            return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow not found."));
+
+        if (instance.Status == WorkflowInstanceStatus.Suspended)
+            instance.Resume();
+        else if (instance.Status != WorkflowInstanceStatus.Running)
+            return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not resumable."));
 
         // =================================================================
         // FR-11: WAKE UP & INJECT DATA (Đánh thức và Bơm dữ liệu)
@@ -397,6 +478,10 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (pointer == null)
             return Result.Failure(Error.NotFound("Pointer.NotFound", "Execution Pointer not found."));
 
+        var instance = await _instanceRepo.GetInstanceByIdAsync(instanceId);
+        if (instance == null)
+            return Result.Failure(Error.NotFound("Instance.NotFound", "Workflow instance not found."));
+
         // Chỉ xử lý nếu Pointer đang chạy (đề phòng duplicate message)
         if (pointer.Status != ExecutionPointerStatus.Running)
         {
@@ -404,12 +489,16 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             return Result.Success();
         }
 
-        // Đổi trạng thái từ Running -> WaitingForEvent (Ngủ đông)
+        // Đổi trạng thái từ Running -> Suspended
         pointer.PauseForWebhook();
+
+        if (instance.Status == WorkflowInstanceStatus.Running)
+            instance.Suspend();
 
         _logger.LogInformation("Workflow {InstanceId} SUSPENDED at Step {StepId}. Reason: {Reason}", instanceId, pointer.StepId, reason);
 
         // Lưu trạng thái xuống DB
+        await _instanceRepo.UpdateInstanceAsync(instance);
         await _uow.SaveChangesAsync();
         return Result.Success();
     }

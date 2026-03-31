@@ -25,6 +25,9 @@ public interface IExecutionPointerRepository
     Task AddPointerAsync(ExecutionPointer pointer, CancellationToken cancellationToken = default);
     Task UpdatePointerAsync(ExecutionPointer pointer, CancellationToken cancellationToken = default);
 
+    // For Worker: Atomic lease acquire (Pending or expired Running)
+    Task<bool> TryAcquireLeaseAsync(Guid pointerId, string workerId, TimeSpan leaseDuration, CancellationToken ct = default);
+
     // For Worker: Gia hạn thời gian sống
     Task<bool> RenewLeaseAsync(Guid pointerId, string workerId, TimeSpan extension, CancellationToken ct = default);
 
@@ -43,8 +46,8 @@ public interface IExecutionPointerRepository
     // Lấy danh sách các pointer đã hoàn thành ở nút Join (để Engine quyết định có đủ điều kiện đi tiếp hay không)
     Task<List<ExecutionPointer>> GetCompletedPointersByInstanceIdAsync(Guid instanceId);
 
-    // Dành cho Delay Wake-up Service: Tìm các Pointer đang ngủ mà đã đến giờ đánh thức
-    Task<List<ExecutionPointer>> GetExpiredWaitingForEventAsync(DateTime now, CancellationToken cancellationToken = default);
+    // Dành cho Delay Wake-up Service: Tìm các Pointer đang Suspended mà đã đến giờ đánh thức
+    Task<List<ExecutionPointer>> GetExpiredSuspendedPointersAsync(DateTime now, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ExecutionPointer>> GetPointersByInstanceIdAsync(Guid instanceId, CancellationToken cancellationToken = default);
 }

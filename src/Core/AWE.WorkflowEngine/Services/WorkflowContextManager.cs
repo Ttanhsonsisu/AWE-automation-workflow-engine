@@ -25,7 +25,7 @@ public class WorkflowContextManager : IWorkflowContextManager
         {
             ["Inputs"] = inputsNode,
             ["Steps"] = new JsonObject(),
-            ["System"] = new JsonObject
+            ["Meta"] = new JsonObject
             {
                 ["CorrelationId"] = correlationId,
                 ["JobName"] = jobName,
@@ -49,8 +49,23 @@ public class WorkflowContextManager : IWorkflowContextManager
         var stepsNode = root["Steps"]!.AsObject();
 
         // Đảm bảo node của từng StepId tồn tại
-        if (!stepsNode.ContainsKey(stepId) || stepsNode[stepId] == null)
+        // immutability check: nếu đã có Output rồi thì không được ghi đè (Zero-Contention)
+        if (stepsNode.ContainsKey(stepId) && stepsNode[stepId] != null)
+        {
+            var existingStepData = stepsNode[stepId]!.AsObject();
+            if (existingStepData.ContainsKey("Output") && existingStepData["Output"] != null)
+            {
+                // TẠI SAO PHẢI THROW EXCEPTION Ở ĐÂY?
+                // Message Broker (MassTransit/RabbitMQ) đôi khi có thể gửi "Duplicate Message" (Gửi trùng 1 event 2 lần).
+                // Nếu ta không chặn, Worker thứ 2 chạy xong sẽ ghi đè lên dữ liệu của Worker thứ 1.
+                // Điều này phá vỡ tính toàn vẹn dữ liệu của hệ thống phân tán.
+                throw new InvalidOperationException($"Immutability Violation: Node '{stepId}' đã có Output trong Context. Engine từ chối ghi đè dữ liệu để bảo vệ tính toàn vẹn (Zero-Contention).");
+            }
+        }
+        else
+        {
             stepsNode[stepId] = new JsonObject();
+        }
 
         var stepData = stepsNode[stepId]!.AsObject();
 

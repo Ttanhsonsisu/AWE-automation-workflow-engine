@@ -128,6 +128,16 @@ public class ExecutionPointer : Entity
         EndTime = DateTime.UtcNow;
     }
 
+    public void MarkAsFailedByEngine(JsonDocument? errorContext)
+    {
+        Status = ExecutionPointerStatus.Failed;
+        Active = false;
+        LeasedUntil = null;
+        LeasedBy = null;
+        Output = errorContext;
+        EndTime = DateTime.UtcNow;
+    }
+
     public void Skip()
     {
         Status = ExecutionPointerStatus.Skipped;
@@ -140,13 +150,13 @@ public class ExecutionPointer : Entity
     // Hàm này dùng để "đánh thức" Node "Wait" từ API bên ngoài, nên không cần kiểm tra lease
     public void HibernateUntil(DateTime resumeTime)
     {
-        Status = ExecutionPointerStatus.WaitingForEvent;
+        Status = ExecutionPointerStatus.Suspended;
         ResumeAt = resumeTime;
     }
 
     public void PauseForWebhook()
     {
-        Status = ExecutionPointerStatus.WaitingForEvent;
+        Status = ExecutionPointerStatus.Suspended;
         ResumeAt = null;
     }
 
@@ -185,7 +195,7 @@ public class ExecutionPointer : Entity
     /// <exception cref="InvalidOperationException"></exception>
     public void CompleteFromWait(JsonDocument? output)
     {
-        if (Status != ExecutionPointerStatus.WaitingForEvent)
+        if (Status != ExecutionPointerStatus.Suspended)
             throw new InvalidOperationException($"Cannot resume step from status: {Status}");
 
         Status = ExecutionPointerStatus.Completed;
@@ -197,7 +207,7 @@ public class ExecutionPointer : Entity
 
     public void WakeUp()
     {
-        if (Status != ExecutionPointerStatus.WaitingForEvent)
+        if (Status != ExecutionPointerStatus.Suspended)
             throw new InvalidOperationException($"Cannot wake up step from status: {Status}");
 
         Status = ExecutionPointerStatus.Pending; // Trả về Pending để Worker/Engine xử lý tiếp
