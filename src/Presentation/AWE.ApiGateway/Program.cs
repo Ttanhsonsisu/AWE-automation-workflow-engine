@@ -1,7 +1,10 @@
-﻿using AWE.Infrastructure;
+﻿using AWE.ApiGateway.Consumers;
 using AWE.Application;
+using AWE.Infrastructure;
 using AWE.ServiceDefaults.Extensions;
 using AWE.WorkflowEngine;
+using AWE.WorkflowEngine.Services;
+using MassTransit;
 
 // ================================================================
 // Application bootstrap
@@ -22,7 +25,10 @@ builder.AddServiceDefaults();
 builder.Services.AddAwePersistence(builder.Configuration);
 
 // Register messaging infrastructure 
-builder.Services.AddAweMessaging(builder.Configuration);
+builder.Services.AddAweMessaging(builder.Configuration, massTransit =>
+{
+    massTransit.AddConsumersFromNamespaceContaining<UiNotificationConsumer>();
+});
 
 // add service engine
 builder.Services.AddWorkflowEngineService();
@@ -32,16 +38,18 @@ builder.Services.AddAweApplication();
 
 // Register object storage
 //builder.Services.AddAweObjectStorage(builder.Configuration);
-
-
 // config cors to allow frontend to call API (adjust as needed for production)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
-        policy.AllowAnyOrigin()   // Cho phép tất cả các nguồn
+        policy.SetIsOriginAllowed(_ => true)  // Cho phép tất cả các nguồn
               .AllowAnyHeader()   // Cho phép bất kỳ header nào
-              .AllowAnyMethod());  // Cho phép tất cả các phương thức HTTP
+              .AllowAnyMethod()
+              .AllowCredentials());  // Cho phép tất cả các phương thức HTTP
 });
+
+// Register SignalR for real-time updates (optional, adjust as needed)
+builder.Services.AddSignalR();
 
 
 // ------------------------------------------------------------
@@ -74,28 +82,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseCors("AllowAll");
 app.MapControllers();
-
-
-// =============== API TEST =============
-//app.MapPost("/api/workflows", async (
-//    [FromBody] SubmitWorkflowCommand request,
-//    [FromServices] IPublishEndpoint publishEndpoint,
-//    [FromServices] ApplicationDbContext dbContext) =>
-//{
-//    await publishEndpoint.Publish(request);
-
-//    await dbContext.SaveChangesAsync();
-
-//    return Results.Accepted(value: new
-//    {
-//        Message = "sended command !",
-//        JobId = request.DefinitionId
-//    });
-//});
-// ===========================================
+app.MapHub<WorkflowHub>("/hubs/workflow");
 
 app.Run();

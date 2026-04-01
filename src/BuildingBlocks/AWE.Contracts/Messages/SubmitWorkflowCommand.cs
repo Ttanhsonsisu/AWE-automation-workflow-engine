@@ -77,7 +77,8 @@ public record StepFailedEvent(
     Guid InstanceId,          // Workflow instance identifier
     Guid ExecutionPointerId,
     string StepId,              // Step instance identifier
-    string ErrorMessage       // Failure description
+    string ErrorMessage,     // Failure description,
+    DateTime? FailedAt = null
 );
 
 #endregion

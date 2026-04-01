@@ -1,6 +1,8 @@
 ﻿using AWE.Application.Abstractions.CoreEngine;
+using AWE.Application.Services;
 using AWE.Contracts.Messages;
 using AWE.Infrastructure.Extensions;
+using AWE.WorkflowEngine.Services;
 using MassTransit;
 
 namespace AWE.Wokrer.Engine.Consumers;
@@ -16,7 +18,8 @@ public class WorkflowEventConsumer :
     private readonly ILogger<WorkflowEventConsumer> _logger;
     private readonly IWorkflowOrchestrator _orchestrator;
 
-    public WorkflowEventConsumer(ILogger<WorkflowEventConsumer> logger, IWorkflowOrchestrator orchestrator)
+    public WorkflowEventConsumer(ILogger<WorkflowEventConsumer> logger,
+        IWorkflowOrchestrator orchestrator)
     {
         _logger = logger;
         _orchestrator = orchestrator;
@@ -30,6 +33,13 @@ public class WorkflowEventConsumer :
             msg.WorkflowInstanceId, msg.ExecutionPointerId, msg.Output
         );
 
+        // Notify UI about the step completion
+        await context.Publish(new UiNodeStatusChangedEvent(
+         msg.WorkflowInstanceId,
+         msg.StepId,
+         "Completed",
+         msg.CompletedAt));
+
         await context.ProcessResultAsync(result, _logger, $"StepSuccess:{msg.StepId}");
     }
 
@@ -40,6 +50,13 @@ public class WorkflowEventConsumer :
         var result = await _orchestrator.HandleStepFailureAsync(
             msg.InstanceId, msg.ExecutionPointerId, msg.ErrorMessage
         );
+
+        await context.Publish(new UiNodeStatusChangedEvent(
+            msg.InstanceId,
+            msg.StepId,
+            "Failed",
+            msg.FailedAt ?? DateTime.UtcNow));
+
 
         await context.ProcessResultAsync(result, _logger, $"StepFail:{msg.StepId}");
     }
