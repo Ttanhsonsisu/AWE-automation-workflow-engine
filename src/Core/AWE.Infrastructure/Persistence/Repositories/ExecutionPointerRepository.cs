@@ -70,7 +70,11 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
         ExecutionPointer pointer,
         CancellationToken cancellationToken = default)
     {
-        _context.ExecutionPointers.Update(pointer);
+        // Rely on EF Core change tracking instead of calling Update(), which forces updating all columns.
+        if (_context.Entry(pointer).State == EntityState.Detached)
+        {
+            _context.ExecutionPointers.Update(pointer);
+        }
         return Task.CompletedTask;
     }
 
@@ -88,6 +92,7 @@ public class ExecutionPointerRepository(ApplicationDbContext _context) : IExecut
                                 && x.LeasedUntil.Value < now)))
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.Status, ExecutionPointerStatus.Running)
+                .SetProperty(p => p.StartTime, now)
                 .SetProperty(p => p.LeasedBy, workerId)
                 .SetProperty(p => p.LeasedUntil, leasedUntil)
                 .SetProperty(p => p.RetryCount,

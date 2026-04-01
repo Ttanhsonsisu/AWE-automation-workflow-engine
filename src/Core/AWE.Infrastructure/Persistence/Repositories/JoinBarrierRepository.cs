@@ -28,7 +28,10 @@ public class JoinBarrierRepository(ApplicationDbContext _context) : IJoinBarrier
         JoinBarrier barrier,
         CancellationToken cancellationToken = default)
     {
-        _context.JoinBarriers.Update(barrier);
+        if (_context.Entry(barrier).State == EntityState.Detached)
+        {
+            _context.JoinBarriers.Update(barrier);
+        }
         return Task.CompletedTask;
     }
 }

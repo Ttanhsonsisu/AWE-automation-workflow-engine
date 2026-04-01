@@ -32,7 +32,10 @@ public class ApprovalTokenRepository(ApplicationDbContext context) : IApprovalTo
 
     public Task UpdateApprovalTokenAsync(ApprovalToken tokenString, CancellationToken cancellationToken = default)
     {
-        _context.ApprovalTokens.Update(tokenString);
+        if (_context.Entry(tokenString).State == EntityState.Detached)
+        {
+            _context.ApprovalTokens.Update(tokenString);
+        }
         return Task.CompletedTask;
     }
 }

@@ -12,8 +12,18 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
         CancellationToken cancellationToken = default)
     {
         return await _context.WorkflowInstances
-            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    }
+
+    public async Task<WorkflowInstanceStatus?> GetInstanceStatusAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.WorkflowInstances
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => (WorkflowInstanceStatus?)x.Status)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<WorkflowInstance?> GetInstanceWithPointersAsync(
@@ -93,7 +103,12 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
         WorkflowInstance instance,
         CancellationToken cancellationToken = default)
     {
-        _context.WorkflowInstances.Update(instance);
+        // Rely on EF Core change tracking instead of calling Update(), which forces updating all columns.
+        // If entity is untracked, we attach it.
+        if (_context.Entry(instance).State == EntityState.Detached)
+        {
+            _context.WorkflowInstances.Update(instance);
+        }
         return Task.CompletedTask;
     }
 

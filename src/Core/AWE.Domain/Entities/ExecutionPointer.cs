@@ -24,6 +24,7 @@ public class ExecutionPointer : Entity
     public Guid? PredecessorId { get; private set; }
     public JsonDocument Scope { get; private set; }
     public DateTime CreatedAt { get; private set; }
+    public DateTime? StartTime { get; private set; }
     public DateTime? EndTime { get; private set; }
     // Cờ đánh dấu Engine đã xử lý định tuyến (sinh nhánh con) xong chưa
     public bool Routed { get; private set; } = false;
@@ -33,6 +34,7 @@ public class ExecutionPointer : Entity
     // Trường này dùng để lưu thời điểm đánh thức lại Node "Wait" từ API bên ngoài, giúp phân biệt với EndTime của Worker bình thường
     public DateTime? ResumeAt { get; set; }
 
+    public JsonDocument? InputData { get; private set; }
     public virtual WorkflowInstance Instance { get; private set; } = null!;
     public virtual ICollection<ExecutionLog> ExecutionLogs { get; private set; } = new List<ExecutionLog>();
 
@@ -64,6 +66,7 @@ public class ExecutionPointer : Entity
 
     // --- State Machine & Leasing Logic ---
 
+
     public bool TryAcquireLease(string workerId, TimeSpan leaseDuration)
     {
         if (string.IsNullOrWhiteSpace(workerId))
@@ -75,6 +78,7 @@ public class ExecutionPointer : Entity
         if (Status == ExecutionPointerStatus.Pending)
         {
             Status = ExecutionPointerStatus.Running;
+            StartTime = now;
             LeasedUntil = now.Add(leaseDuration);
             LeasedBy = workerId;
             return true;
@@ -83,6 +87,7 @@ public class ExecutionPointer : Entity
         // Case 2: Cướp lại việc của Zombie (Worker cũ bị chết)
         if (Status == ExecutionPointerStatus.Running && LeasedUntil.HasValue && LeasedUntil.Value < now)
         {
+            StartTime = now;
             LeasedUntil = now.Add(leaseDuration);
             LeasedBy = workerId;
             RetryCount++; // Tính là 1 lần retry
@@ -211,11 +216,22 @@ public class ExecutionPointer : Entity
             throw new InvalidOperationException($"Cannot wake up step from status: {Status}");
 
         Status = ExecutionPointerStatus.Pending; // Trả về Pending để Worker/Engine xử lý tiếp
-        ResumeAt = null; // 🌟 Tắt chuông báo thức
+        ResumeAt = null; // Tắt chuông báo thức
     }
 
     public void MarkAsRouted()
     {
         Routed = true;
+    }
+
+    // Hàm này dùng để cập nhật InputData khi khởi tạo Workflow, giúp lưu lại dữ liệu gốc ban đầu cho toàn bộ workflow
+    public void SetInput(JsonDocument input)
+    {
+        InputData = input;
+    }
+
+    public void Start()
+    {
+        StartTime = DateTime.UtcNow;
     }
 }

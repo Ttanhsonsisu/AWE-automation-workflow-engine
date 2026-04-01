@@ -24,11 +24,16 @@ public class JoinBarrierService(
         if (handle == null)
         {
             _logger.LogInformation("⏳ Join {JoinId} locked by another thread.", joinNodeId);
-            //return new JoinBarrierResult(false, false, null);
-            // [CHANGE] Thay vì trả về false để Worker tiếp tục retry, chúng ta sẽ ném exception để Worker hiểu rằng đây là lỗi tạm thời do lock và sẽ retry sau.
-            throw new InvalidOperationException($"Could not acquire lock for Join {joinNodeId}");
+            // Fallback an toàn: lock contention kéo dài không được phép làm kẹt flow.
+            // Dùng optimistic evaluation để tiếp tục tiến trình Resume.
+            return await EvaluateCoreAsync(instance, joinNodeId, totalIncomingEdges);
         }
 
+        return await EvaluateCoreAsync(instance, joinNodeId, totalIncomingEdges);
+    }
+
+    private async Task<JoinBarrierResult> EvaluateCoreAsync(WorkflowInstance instance, string joinNodeId, int totalIncomingEdges)
+    {
         int arrivedPointersCount = await _pointerRepo.CountArrivedPointersByStepIdAsync(instance.Id, joinNodeId);
 
         // Chưa đủ nhánh -> Barrier chưa vỡ

@@ -1,4 +1,5 @@
 ﻿using AWE.Application.Services;
+using AWE.Application.Abstractions.Persistence;
 using AWE.Application.UseCases.Workflows.CloneDefinition;
 using AWE.Application.UseCases.Workflows.CreateDefinition;
 using AWE.Application.UseCases.Workflows.DeleteDefinition;
@@ -11,6 +12,7 @@ using AWE.Infrastructure.Persistence;
 using AWE.Shared.Primitives;
 using MassTransit;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace AWE.ApiGateway.Controllers;
 
@@ -31,6 +33,63 @@ public class WorkflowController : ApiController
     {
         var result = await _workflowService.GetWorkflowDetailsAsync(id, ct);
         return HandleResult(result);
+    }
+
+    [HttpGet("{instanceId:guid}/steps/{stepId}")]
+    public async Task<IActionResult> GetStepDetails(
+        Guid instanceId,
+        string stepId,
+        [FromServices] IExecutionPointerRepository pointerRepository,
+        [FromServices] IExecutionLogRepository executionLogRepository,
+        CancellationToken ct)
+    {
+        var pointers = await pointerRepository.GetPointersByStepIdAsync(instanceId, stepId);
+        var pointer = pointers
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefault();
+
+        if (pointer == null)
+        {
+            return HandleResult(Result.Failure<WorkflowStepDetailResponse>(
+                Error.NotFound("Workflow.Step.NotFound", $"Không tìm thấy step '{stepId}' của instance '{instanceId}'.")));
+        }
+
+        var logs = await executionLogRepository.GetLogsByInstanceAsync(instanceId, ct);
+        var pointerLogs = logs
+            .Where(x => x.ExecutionPointerId == pointer.Id)
+            .OrderBy(x => x.CreatedAt)
+            .ToList();
+
+        var startedLog = pointerLogs.FirstOrDefault(x => x.Event == "StepStarted");
+        var errorLog = pointerLogs.LastOrDefault(x => x.Event == "StepError" || x.Event == "WorkflowFailed");
+
+        var input = pointer.InputData?.RootElement.Clone()
+            ?? (startedLog?.Metadata is null
+                ? null
+                : TryGetMetadataValue(startedLog.Metadata, "Input", "input", "Payload", "payload"));
+
+        var output = pointer.Output?.RootElement.Clone();
+
+        var errorMessage = errorLog?.Message;
+        if (errorLog?.Metadata is not null)
+        {
+            var metadataErrorMessage = TryGetMetadataString(errorLog.Metadata, "ErrorMessage", "Error", "Message", "message");
+            if (!string.IsNullOrWhiteSpace(metadataErrorMessage))
+            {
+                errorMessage = metadataErrorMessage;
+            }
+        }
+
+        var response = new WorkflowStepDetailResponse(
+            InstanceId: instanceId,
+            StepId: stepId,
+            Input: input,
+            Output: output,
+            ErrorMessage: errorMessage,
+            StartTime: pointer.StartTime ?? startedLog?.CreatedAt ?? pointer.CreatedAt,
+            EndTime: pointer.EndTime);
+
+        return HandleResult(Result.Success(response));
     }
 
     [HttpGet("definitions")]
@@ -135,6 +194,37 @@ public class WorkflowController : ApiController
         // Uỷ quyền cho BaseController xử lý việc map ra HTTP 200, 400, hay 404
         return HandleResult(result);
     }
+
+    private static JsonElement? TryGetMetadataValue(JsonDocument metadata, params string[] candidateKeys)
+    {
+        if (metadata.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var key in candidateKeys)
+        {
+            if (metadata.RootElement.TryGetProperty(key, out var value))
+            {
+                return value.Clone();
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryGetMetadataString(JsonDocument metadata, params string[] candidateKeys)
+    {
+        var value = TryGetMetadataValue(metadata, candidateKeys);
+        if (value is null)
+        {
+            return null;
+        }
+
+        return value.Value.ValueKind == JsonValueKind.String
+            ? value.Value.GetString()
+            : value.Value.GetRawText();
+    }
 }
 
 public record SubmitRequest(
@@ -143,3 +233,12 @@ public record SubmitRequest(
     object? InputData ,
     bool IsTest = false
 );
+
+public record WorkflowStepDetailResponse(
+    Guid InstanceId,
+    string StepId,
+    JsonElement? Input,
+    JsonElement? Output,
+    string? ErrorMessage,
+    DateTime? StartTime,
+    DateTime? EndTime);

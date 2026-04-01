@@ -45,13 +45,14 @@ public class PointerDispatcher(
             pointer.Status = ExecutionPointerStatus.Suspended;
             pointer.Output = errorDoc;
 
-            // Bắn SignalR báo cho Frontend
-            await publishEndpoint.Publish(new UiNodeStatusChangedEvent(
-                InstanceId: instance.Id,
-                StepId: pointer.StepId,
-                Status: "Suspended",
-                Timestamp: DateTime.UtcNow
-            ));
+            await PublishDispatchIssueAsync(
+                instanceId: instance.Id,
+                pointer: pointer,
+                uiStatus: "Suspended",
+                auditEvent: "StepSuspended",
+                auditMessage: "Node chưa được cấu hình đầy đủ. Vui lòng hoàn thiện cấu hình để tiếp tục.",
+                level: AWE.Domain.Enums.LogLevel.Warning,
+                metadataJson: errorDoc.RootElement.GetRawText());
 
             return null;
         }
@@ -81,10 +82,28 @@ public class PointerDispatcher(
             // log lỗi chi tiết để dễ debug, bao gồm InstanceId, StepId và thông tin lỗi
             logger.LogError("Workflow {InstanceId} FAILED at Step {StepId}. {Error}", instance.Id, pointer.StepId, resolveResult.ErrorMessage);
 
+            await PublishDispatchIssueAsync(
+                instanceId: instance.Id,
+                pointer: pointer,
+                uiStatus: "Failed",
+                auditEvent: "StepFailed",
+                auditMessage: $"Node {pointer.StepId} thất bại ở phase resolve biến.",
+                level: AWE.Domain.Enums.LogLevel.Error,
+                metadataJson: errorDoc.RootElement.GetRawText());
+
             return null; 
         }
 
         string resolvedPayload = resolveResult.ResolvedPayload;
+
+        try
+        {
+            pointer.SetInput(JsonDocument.Parse(resolvedPayload));
+        }
+        catch (JsonException)
+        {
+            pointer.SetInput(JsonDocument.Parse("{}"));
+        }
 
         // =================================================================
         // 2. SIZE CONTROL GUARD (Bảo vệ Message Queue)
@@ -104,6 +123,16 @@ public class PointerDispatcher(
             pointer.MarkAsFailedByEngine(errorDoc);
 
             logger.LogError("Payload limit exceeded for Step {StepId}. Size: {Size} bytes", pointer.StepId, payloadSize);
+
+            await PublishDispatchIssueAsync(
+                instanceId: instance.Id,
+                pointer: pointer,
+                uiStatus: "Failed",
+                auditEvent: "StepFailed",
+                auditMessage: $"Node {pointer.StepId} thất bại do payload vượt quá giới hạn cho phép.",
+                level: AWE.Domain.Enums.LogLevel.Error,
+                metadataJson: errorDoc.RootElement.GetRawText());
+
             return null;
         }
 
@@ -170,5 +199,30 @@ public class PointerDispatcher(
             ExecutionMode: stepModel.ExecutionMode,
             ExecutionMetadataJson: executionMetadataJson
         );
+    }
+
+    private async Task PublishDispatchIssueAsync(
+        Guid instanceId,
+        ExecutionPointer pointer,
+        string uiStatus,
+        string auditEvent,
+        string auditMessage,
+        AWE.Domain.Enums.LogLevel level,
+        string? metadataJson)
+    {
+        await publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+            InstanceId: instanceId,
+            StepId: pointer.StepId,
+            Status: uiStatus,
+            Timestamp: DateTime.UtcNow));
+
+        await publishEndpoint.Publish(new WriteAuditLogCommand(
+            InstanceId: instanceId,
+            Event: auditEvent,
+            Message: auditMessage,
+            Level: level,
+            ExecutionPointerId: pointer.Id,
+            NodeId: pointer.StepId,
+            MetadataJson: metadataJson));
     }
 }

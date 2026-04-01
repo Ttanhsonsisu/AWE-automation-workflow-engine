@@ -73,8 +73,15 @@ public class ExecutionPointerConfiguration : IEntityTypeConfiguration<ExecutionP
             .HasColumnType("jsonb")
             .IsRequired(false);
 
+        builder.Property(x => x.InputData)
+            .HasColumnType("jsonb")
+            .IsRequired(false);
+
         builder.Property(x => x.CreatedAt)
             .IsRequired();
+
+        builder.Property(x => x.StartTime)
+            .IsRequired(false);
 
         // =====================================================================
         // PERFORMANCE INDEXES (CRITICAL)

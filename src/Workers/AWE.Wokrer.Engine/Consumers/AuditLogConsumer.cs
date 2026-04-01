@@ -11,13 +11,19 @@ public class AuditLogConsumer : IConsumer<WriteAuditLogCommand>
     private readonly ILogger<AuditLogConsumer> _logger;
     private readonly IUnitOfWork _uow;
     private readonly IExecutionLogRepository _executionLogRepository;
+    private readonly IExecutionPointerRepository _executionPointerRepository;
+    private readonly IWorkflowInstanceRepository _workflowInstanceRepository;
 
     public AuditLogConsumer(ILogger<AuditLogConsumer> logger,
                             IUnitOfWork uow,
-                            IExecutionLogRepository executionLogRepository)
+                            IExecutionLogRepository executionLogRepository,
+                            IExecutionPointerRepository executionPointerRepository,
+                            IWorkflowInstanceRepository workflowInstanceRepository)
     {
         _uow = uow;
         _executionLogRepository = executionLogRepository;
+        _executionPointerRepository = executionPointerRepository;
+        _workflowInstanceRepository = workflowInstanceRepository;
         _logger = logger;
     }
 
@@ -43,13 +49,37 @@ public class AuditLogConsumer : IConsumer<WriteAuditLogCommand>
             }
         }
 
+        if (msg.InstanceId == Guid.Empty)
+        {
+            _logger.LogWarning("[AUDIT] Invalid empty InstanceId for log event {Event}. Skip insert.", msg.Event);
+            return;
+        }
+
+        var instance = await _workflowInstanceRepository.GetInstanceByIdAsync(msg.InstanceId, context.CancellationToken);
+        if (instance == null)
+        {
+            _logger.LogWarning("[AUDIT] Instance {InstanceId} not found for log event {Event}. Skip insert to avoid FK violation.", msg.InstanceId, msg.Event);
+            return;
+        }
+
+        Guid? executionPointerId = msg.ExecutionPointerId;
+        if (executionPointerId.HasValue)
+        {
+            var pointer = await _executionPointerRepository.GetPointerByIdAsync(executionPointerId.Value, context.CancellationToken);
+            if (pointer == null)
+            {
+                _logger.LogWarning("[AUDIT] Pointer {PointerId} not found for log event {Event}. Fallback to null pointer reference.", executionPointerId.Value, msg.Event);
+                executionPointerId = null;
+            }
+        }
+
         // 3. Tạo Entity
         var logEntry = new ExecutionLog(
             instanceId: msg.InstanceId,
             eventType: msg.Event,
             message: msg.Message,
             level: msg.Level, // Enum Microsoft.Extensions.Logging.LogLevel
-            executionPointerId: msg.ExecutionPointerId,
+            executionPointerId: executionPointerId,
             nodeId: msg.NodeId,
             workerId: msg.WorkerId,
             metadata: metadataDoc
