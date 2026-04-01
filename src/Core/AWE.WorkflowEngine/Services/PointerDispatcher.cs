@@ -7,6 +7,7 @@ using AWE.Domain.Enums;
 using AWE.Shared.Consts;
 using AWE.Shared.Extensions; 
 using MassTransit;
+using MassTransit.Transports;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -14,7 +15,8 @@ namespace AWE.WorkflowEngine.Services;
 public class PointerDispatcher(
     IVariableResolver resolver,
     ILogger<PointerDispatcher> logger,
-    IMessageScheduler messageScheduler) : IPointerDispatcher
+    IMessageScheduler messageScheduler,
+    IPublishEndpoint publishEndpoint) : IPointerDispatcher
 {
 
     public async Task<ExecutePluginCommand?> CreateDispatchCommand(WorkflowInstance instance, ExecutionPointer pointer, JsonDocument defJson)
@@ -26,6 +28,32 @@ public class PointerDispatcher(
         if (stepModel == null)
         {
             throw new InvalidOperationException($"Step {pointer.StepId} không tồn tại trong Definition.");
+        }
+
+        // =================================================================
+        // Check Configuration & Resolve Variable
+        if ((bool)!stepModel.IsConfigured)
+        {
+            
+            // Cập nhật trạng thái Pointer thành Tạm dừng (Suspended)
+            // Tùy vào Entity của bạn, có thể gán trực tiếp hoặc dùng method của Domain
+            var errorDoc = JsonSerializer.SerializeToDocument(new
+            {
+                Message = "Node chưa được cấu hình đầy đủ. Vui lòng hoàn thiện cấu hình để tiếp tục."
+            });
+
+            pointer.Status = ExecutionPointerStatus.Suspended;
+            pointer.Output = errorDoc;
+
+            // Bắn SignalR báo cho Frontend
+            await publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+                InstanceId: instance.Id,
+                StepId: pointer.StepId,
+                Status: "Suspended",
+                Timestamp: DateTime.UtcNow
+            ));
+
+            return null;
         }
 
         // 2. Lấy Tên Plugin THẬT SỰ (Xuyên qua cả BuiltIn lẫn DynamicDll)

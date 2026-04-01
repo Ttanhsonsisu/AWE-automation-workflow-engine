@@ -58,7 +58,8 @@ public class WorkflowController : ApiController
             DefinitionId: request.DefinitionId,
             JobName: request.JobName ?? $"Job-{DateTime.UtcNow:HHmmss}",
             InputData: request.InputData?.ToString() ?? "{}", // Chuyển JSON Object thành String
-            CorrelationId: Guid.NewGuid()
+            CorrelationId: Guid.NewGuid(),
+            IsTest: request.IsTest
         );
 
         // Bắn vào RabbitMQ
@@ -139,5 +140,6 @@ public class WorkflowController : ApiController
 public record SubmitRequest(
     Guid DefinitionId,
     string? JobName,
-    object? InputData 
+    object? InputData ,
+    bool IsTest = false
 );

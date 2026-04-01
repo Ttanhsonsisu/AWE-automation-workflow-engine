@@ -48,6 +48,7 @@ public class WorkflowInstance : AuditableEntity
     /// </summary>
     public Guid? ParentPointerId { get; private set; }
 
+    public bool IsTest { get; private set; } = true;
     /// <summary>
     /// Navigation properties
     /// </summary>
@@ -64,7 +65,8 @@ public class WorkflowInstance : AuditableEntity
         int definitionVersion,
         JsonDocument? initialContext = null,
         Guid? parentInstanceId = null,
-        Guid? parentPointerId = null)
+        Guid? parentPointerId = null,
+        bool isTestInstance = false)
         : base()
     {
         DefinitionId = definitionId;
@@ -74,6 +76,7 @@ public class WorkflowInstance : AuditableEntity
         StartTime = DateTime.UtcNow;
         ParentInstanceId = parentInstanceId;
         ParentPointerId = parentPointerId;
+        IsTest = isTestInstance;
     }
 
     /// <summary>

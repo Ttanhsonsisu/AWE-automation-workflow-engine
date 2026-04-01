@@ -28,7 +28,7 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
 
         // Gọi Orchestrator Core
         var result = await _orchestrator.StartWorkflowAsync(
-            cmd.DefinitionId, cmd.JobName, cmd.InputData, cmd.CorrelationId
+            cmd.DefinitionId, cmd.JobName, cmd.InputData, cmd.CorrelationId, isTest: cmd.IsTest
         );
 
         // Extension xử lý Result chuẩn hóa
