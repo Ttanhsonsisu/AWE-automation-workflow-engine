@@ -1,5 +1,6 @@
-﻿using AWE.Application.Services;
+﻿using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
+using AWE.Application.Services;
 using AWE.Application.UseCases.Workflows.CloneDefinition;
 using AWE.Application.UseCases.Workflows.CreateDefinition;
 using AWE.Application.UseCases.Workflows.DeleteDefinition;
@@ -8,11 +9,11 @@ using AWE.Application.UseCases.Workflows.ImportDefinition;
 using AWE.Application.UseCases.Workflows.ScheduleDefinition;
 using AWE.Application.UseCases.Workflows.UpdateDefinition;
 using AWE.Contracts.Messages;
+using AWE.Domain.Enums;
 using AWE.Infrastructure.Persistence;
 using AWE.Shared.Primitives;
 using MassTransit;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 
 namespace AWE.ApiGateway.Controllers;
 
@@ -99,6 +100,7 @@ public class WorkflowController : ApiController
             StepId: stepId,
             Input: input,
             Output: output,
+            Status: pointer.Status,
             ErrorMessage: errorMessage,
             StartTime: pointer.StartTime ?? startedLog?.CreatedAt ?? pointer.CreatedAt,
             EndTime: pointer.EndTime);
@@ -253,6 +255,7 @@ public record WorkflowStepDetailResponse(
     string StepId,
     JsonElement? Input,
     JsonElement? Output,
+    ExecutionPointerStatus Status,
     string? ErrorMessage,
     DateTime? StartTime,
     DateTime? EndTime);
