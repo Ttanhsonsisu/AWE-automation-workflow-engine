@@ -54,7 +54,12 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         // support multiple start nodes, nên phải lưu DB trước để có InstanceId, phục vụ cho việc tạo ExecutionPointer và Dispatch sau này
         // 3. Khởi tạo TẤT CẢ các Start Pointers
-        var startNodeIds = _evaluator.FindStartNodeIds(def.DefinitionJson);
+        var startNodeIds = _evaluator.FindStartNodeIdsWithType(def.DefinitionJson);
+
+        if (startNodeIds.Count == 0)
+        {
+            return Result.Failure<Guid>(Error.Validation("Workflow.NoTrigger", "Không tìm thấy Node Trigger nào (VD: ManualTrigger) để khởi động Workflow."));
+        }
 
         // add vào List để sau này có thể dùng chung cho việc Dispatch, tránh phải query lại DB nhiều lần trong vòng lặp
         var pendingCommands = new List<ExecutePluginCommand>();

@@ -122,6 +122,44 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
         return startNodes;
     }
 
+    public List<string> FindStartNodeIdsWithType(JsonDocument defJson)
+    {
+        var root = defJson.RootElement;
+        if (!root.TryGetProperty("Steps", out var stepsElement))
+            throw new InvalidOperationException("Workflow definition is missing 'Steps' array.");
+
+        var startNodes = new List<string>();
+
+        // 1. Khai báo danh sách các loại Plugin được cấp quyền làm Start Node (Trigger)
+        // Dùng HashSet + StringComparer.OrdinalIgnoreCase để check siêu nhanh và không phân biệt hoa thường
+        var allowedTriggerTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ManualTrigger"
+            //"WebhookReceiver",
+            //"ScheduleTimer" 
+        };
+
+        // 2. Quét toàn bộ danh sách Node
+        foreach (var step in stepsElement.EnumerateArray())
+        {
+            var id = step.GetProperty("Id").GetString()!;
+
+            // Kiểm tra trường "Type" (Hoặc "PluginType" tùy theo cách bạn đặt tên trong JSON)
+            if (step.TryGetProperty("Type", out var typeElement))
+            {
+                var pluginType = typeElement.GetString();
+
+                // Nếu Node này thuộc nhóm Trigger -> Thêm nó vào danh sách Start Nodes!
+                if (!string.IsNullOrEmpty(pluginType) && allowedTriggerTypes.Contains(pluginType))
+                {
+                    startNodes.Add(id);
+                }
+            }
+        }
+
+        return startNodes;
+    }
+
     private bool EvaluateCondition(string conditionExpression, JsonDocument context)
     {
         if (string.IsNullOrWhiteSpace(conditionExpression)) return true;

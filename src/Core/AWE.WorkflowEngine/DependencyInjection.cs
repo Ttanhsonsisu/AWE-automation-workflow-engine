@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddTransient<IWorkflowPlugin, JoinPlugin>();
         services.AddTransient<IWorkflowPlugin, ApprovalPlugin>();
         services.AddTransient<IWorkflowPlugin, RetryTestPlugin>();
+        services.AddTransient<IWorkflowPlugin, ManualTriggerPlugin>();
 
         return services;
     }

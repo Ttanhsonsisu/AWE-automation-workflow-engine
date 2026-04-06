@@ -14,4 +14,12 @@ public interface ITransitionEvaluator
     /// <param name="defJson"></param>
     /// <returns></returns>
     List<string> FindStartNodeIds(JsonDocument defJson);
+
+    /// <summary>
+    /// Finds the identifiers of all start nodes of a specific type within the provided JSON document definition.
+    /// </summary>
+    /// <param name="defJson">The JSON document that defines the node structure to search. Cannot be null.</param>
+    /// <returns>A list of strings containing the identifiers of start nodes matching the required type. The list is empty if no
+    /// matching nodes are found.</returns>
+    List<string> FindStartNodeIdsWithType(JsonDocument defJson);
 }
