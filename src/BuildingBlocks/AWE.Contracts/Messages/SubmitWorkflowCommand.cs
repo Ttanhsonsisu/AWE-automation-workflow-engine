@@ -19,7 +19,8 @@ public record SubmitWorkflowCommand(
     Guid DefinitionId,        // Workflow definition to execute
     string JobName,           // Display name for this execution
     string InputData,         // Input payload (JSON)
-    Guid? CorrelationId       // Correlation identifier for end-to-end tracing
+    Guid? CorrelationId,       // Correlation identifier for end-to-end tracing,
+    bool IsTest = false         // Whether this is a test run (affects logging and monitoring)
 );
 
 #endregion
@@ -77,7 +78,8 @@ public record StepFailedEvent(
     Guid InstanceId,          // Workflow instance identifier
     Guid ExecutionPointerId,
     string StepId,              // Step instance identifier
-    string ErrorMessage       // Failure description
+    string ErrorMessage,     // Failure description,
+    DateTime? FailedAt = null
 );
 
 #endregion

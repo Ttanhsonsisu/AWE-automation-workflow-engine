@@ -60,7 +60,7 @@ public class ExecutionLogConfiguration : IEntityTypeConfiguration<ExecutionLog>
 
         builder.HasOne(x => x.ExecutionPointer)
             .WithMany(x => x.ExecutionLogs)
-            .HasForeignKey(x => x.InstanceId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .HasForeignKey(x => x.ExecutionPointerId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

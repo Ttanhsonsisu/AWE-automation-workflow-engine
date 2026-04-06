@@ -48,6 +48,7 @@ public class WorkflowContextManager : IWorkflowContextManager
 
         var stepsNode = root["Steps"]!.AsObject();
 
+        /* xóa bỏ logic này vì trong luồng có luồng thực hiện vòng lặp và bỏ logic cho ghi đè dữ liệu
         // Đảm bảo node của từng StepId tồn tại
         // immutability check: nếu đã có Output rồi thì không được ghi đè (Zero-Contention)
         if (stepsNode.ContainsKey(stepId) && stepsNode[stepId] != null)
@@ -64,6 +65,13 @@ public class WorkflowContextManager : IWorkflowContextManager
         }
         else
         {
+            stepsNode[stepId] = new JsonObject();
+        }
+        */
+
+        if (!stepsNode.ContainsKey(stepId) || stepsNode[stepId] == null)
+        {
+            // Nếu chưa có, tạo node mới cho Step này
             stepsNode[stepId] = new JsonObject();
         }
 

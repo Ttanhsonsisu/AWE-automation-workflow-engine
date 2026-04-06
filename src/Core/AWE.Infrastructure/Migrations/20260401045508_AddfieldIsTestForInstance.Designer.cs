@@ -4,6 +4,7 @@ using System.Text.Json;
 using AWE.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AWE.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260401045508_AddfieldIsTestForInstance")]
+    partial class AddfieldIsTestForInstance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -153,10 +156,6 @@ namespace AWE.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("end_time");
 
-                    b.Property<JsonDocument>("InputData")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("input_data");
-
                     b.Property<Guid>("InstanceId")
                         .HasColumnType("uuid")
                         .HasColumnName("instance_id");
@@ -200,10 +199,6 @@ namespace AWE.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("scope");
-
-                    b.Property<DateTime?>("StartTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("start_time");
 
                     b.Property<string>("Status")
                         .IsRequired()

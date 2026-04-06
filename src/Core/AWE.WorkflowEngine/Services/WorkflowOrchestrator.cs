@@ -38,7 +38,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
     private readonly ILogger<WorkflowOrchestrator> _logger = logger;
 
-    public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId)
+    public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId, bool isTest = false)
     {
         var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
         if (def == null) return Result.Failure<Guid>(Error.NotFound("Definition.NotFound", ""));
@@ -48,7 +48,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (contextResult.IsFailure) return Result.Failure<Guid>(contextResult.Error);
 
         // 2. Khởi tạo Instance
-        var instance = new WorkflowInstance(def.Id, def.Version, contextResult.Value);
+        var instance = new WorkflowInstance(def.Id, def.Version, contextResult.Value, isTestInstance: isTest);
         // instance.MarkAsRunning(); // Bạn nhớ thêm hàm này vào WorkflowInstance nhé
         await _instanceRepo.AddInstanceAsync(instance);
 
@@ -58,6 +58,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         // add vào List để sau này có thể dùng chung cho việc Dispatch, tránh phải query lại DB nhiều lần trong vòng lặp
         var pendingCommands = new List<ExecutePluginCommand>();
+        var failedStartPointers = new List<ExecutionPointer>();
 
         foreach (var startNodeId in startNodeIds)
         {
@@ -79,6 +80,18 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             {
                 pendingCommands.Add(command);
             }
+            else if (pointer.Status == ExecutionPointerStatus.Failed)
+            {
+                failedStartPointers.Add(pointer);
+            }
+        }
+
+        // Nếu toàn bộ Start node đều fail ở phase resolve/dispatch thì fail luôn instance.
+        // Lưu ý: không gọi UpdateInstanceAsync ở đây vì instance vẫn đang ở trạng thái Added.
+        if (pendingCommands.Count == 0 && failedStartPointers.Count > 0)
+        {
+            instance.Fail();
+            instance.EndTime = DateTime.UtcNow;
         }
 
         // 4. Lưu DB (Atomic) chốt hạ tất cả Pointers và Messages cùng lúc
@@ -93,6 +106,20 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             Level: Domain.Enums.LogLevel.Information,
             NodeId: "System" // Log chung của hệ thống
         ));
+
+        if (pendingCommands.Count == 0 && failedStartPointers.Count > 0)
+        {
+            var firstFailed = failedStartPointers[0];
+            await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                InstanceId: instance.Id,
+                Event: "WorkflowFailed",
+                Message: $"Workflow thất bại tại Start node {firstFailed.StepId} do lỗi resolve/dispatch.",
+                Level: Domain.Enums.LogLevel.Error,
+                ExecutionPointerId: firstFailed.Id,
+                NodeId: firstFailed.StepId,
+                MetadataJson: firstFailed.Output?.RootElement.GetRawText()
+            ));
+        }
 
         // update: Sau khi có InstanceId rồi thì mới publish lệnh ExecutePluginCommand để Worker chạy, tránh tình trạng Worker nhận được message mà DB chưa kịp lưu nên không tìm thấy dữ liệu.
         var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
@@ -123,10 +150,26 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             return Result.Success();
         }
 
+        // Use provided eventOutput, or fallback to pointer.Output (for Resumed routing where eventOutput is null)
+        var actualEventOutput = eventOutput ?? pointer.Output;
+
+        // 2. Hoàn thành Node và Merge Data
+        _contextManager.MergeStepOutput(instance, pointer.StepId, actualEventOutput);
+
         // Kiểm tra trạng thái Workflow Instance, nếu đang Suspended thì không tiếp tục điều hướng nữa
         if (instance.Status == WorkflowInstanceStatus.Suspended)
         {
             _logger.LogInformation("Workflow {Id} is SUSPENDED. Halting routing at Step {StepId}.", instance.Id, pointer.StepId);
+            await _instanceRepo.UpdateInstanceAsync(instance);
+            await _uow.SaveChangesAsync();
+            return Result.Success();
+        }
+
+        var latestStatus = await _instanceRepo.GetInstanceStatusAsync(instance.Id);
+        if (latestStatus == WorkflowInstanceStatus.Suspended)
+        {
+            _logger.LogInformation("Workflow {Id} became SUSPENDED while handling completion of Step {StepId}. Routing is halted.", instance.Id, pointer.StepId);
+            await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
             return Result.Success();
         }
@@ -140,10 +183,6 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             await _uow.SaveChangesAsync();
             return Result.Success();
         }
-
-        // 2. Hoàn thành Node và Merge Data
-        //pointer.Complete("Engine", eventOutput); // Gọi hàm chuẩn của Entity
-        _contextManager.MergeStepOutput(instance, pointer.StepId, eventOutput);
 
 
         var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
@@ -198,11 +237,9 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 }
             }
 
-            // Phải Save ở đây để Database thực sự có dữ liệu, giúp hàm COUNT(*) của JoinBarrier chạy đúng, 
+            // Phải Save ở đây để Database thực sự có dữ liệu, giúp hàm COUNT(*) của JoinBarrier chạy đúng,
             // và đảm bảo khi Worker nhận được message thì Data đã sẵn sàng!
-            //Đánh dấu Engine đã rẽ nhánh thành công cho Pointer này
-            pointer.MarkAsRouted();
-
+            // [FIX] Chưa mark Routed tại đây để nếu Join lock bận thì có thể resume/reroute lại.
             await _uow.SaveChangesAsync();
 
             var pendingCommandsToPublish = new List<ExecutePluginCommand>();
@@ -257,6 +294,7 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             {
                 instance.Fail();
                 instance.EndTime = DateTime.UtcNow;
+                pointer.MarkAsRouted();
 
                 await _instanceRepo.UpdateInstanceAsync(instance);
                 await _uow.SaveChangesAsync();
@@ -274,9 +312,19 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 return Result.Success();
             }
 
+            // Đến đây mới xem là rẽ nhánh thành công hoàn toàn.
+            pointer.MarkAsRouted();
             await _uow.SaveChangesAsync();
 
             // 7. BÂY GIỜ MỚI KÍCH HOẠT MASSTRANSIT PUBLISH
+            latestStatus = await _instanceRepo.GetInstanceStatusAsync(instance.Id);
+            if (latestStatus == WorkflowInstanceStatus.Suspended)
+            {
+                _logger.LogInformation("Workflow {Id} was suspended before publish. Skip dispatching next commands.", instance.Id);
+                await _uow.SaveChangesAsync();
+                return Result.Success();
+            }
+
             var routingKey = $"{MessagingConstants.PatternPlugin.TrimEnd('#')}execute";
             foreach (var cmd in pendingCommandsToPublish)
             {

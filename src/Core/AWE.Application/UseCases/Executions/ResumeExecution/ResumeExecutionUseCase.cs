@@ -7,6 +7,7 @@ using AWE.Contracts.Messages;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
+using MassTransit;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.Application.UseCases.Executions.ResumeExecution;
@@ -26,12 +27,14 @@ public class ResumeExecutionUseCase(
     IExecutionPointerRepository pointerRepo,
     IWorkflowOrchestrator orchestrator, 
     IUnitOfWork uow,
+    IPublishEndpoint publishEndpoint,
     ILogger<ResumeExecutionUseCase> logger) : IResumeExecutionUseCase
 {
     private readonly IWorkflowInstanceRepository _instanceRepo = instanceRepo;
     private readonly IExecutionPointerRepository _pointerRepo = pointerRepo;
     private readonly IWorkflowOrchestrator _orchestrator = orchestrator;
     private readonly IUnitOfWork _uow = uow;
+    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
     private readonly ILogger<ResumeExecutionUseCase> _logger = logger;
 
     public async Task<Result> ExecuteAsync(ResumeExecutionRequest request, CancellationToken ct = default)
@@ -57,30 +60,118 @@ public class ResumeExecutionUseCase(
             instance.Resume();
             await _instanceRepo.UpdateInstanceAsync(instance, ct);
             await _uow.SaveChangesAsync(ct);
+
+            // Notify UI
+            await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                instance.Id,
+                "Running",
+                DateTime.UtcNow
+            ), ct);
+
+            await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                InstanceId: instance.Id,
+                Event: "WorkflowResumed",
+                Message: "Luồng đã được tiếp tục thực thi bởi người dùng.",
+                Level: AWE.Domain.Enums.LogLevel.Information,
+                NodeId: "System"
+            ), ct);
         }
 
-        // 4. RẼ NHÁNH CÁC NODE KẸT VỚI ÁO GIÁP BẢO VỆ (Try-Catch)
-        foreach (var pointer in stuckPointers)
+        // 4. RẼ NHÁNH CÁC NODE KẸT
+        // Không block API quá lâu để chờ "hết sạch" node kẹt, vì routing là eventual.
+        // Chỉ thử vài vòng ngắn để kick-off lại luồng, sau đó trả Success cho client.
+        const int maxGlobalRetries = 3;
+        var hadProgress = false;
+        for (var round = 1; round <= maxGlobalRetries; round++)
         {
-            try
+            pointers = await _pointerRepo.GetPointersByInstanceIdAsync(instance.Id, ct);
+            stuckPointers = pointers.Where(p => p.Status == ExecutionPointerStatus.Completed && !p.Routed).ToList();
+
+            if (stuckPointers.Count == 0)
             {
-                _logger.LogInformation("🚀 Resuming routing for stuck pointer {PointerId}", pointer.Id);
-                await _orchestrator.HandleStepCompletionAsync(instance.Id, pointer.Id, null);
+                return Result.Success();
             }
-            catch (InvalidOperationException ex) when (ex.Message.Contains("lock"))
+
+            var hasJoinLockBusy = false;
+            var routedAnyThisRound = false;
+            var beforeCount = stuckPointers.Count;
+
+            foreach (var pointer in stuckPointers)
             {
-                // BẮT RIÊNG LỖI LOCK TẠI CỬA JOIN!
-                // Cố tình nuốt lỗi này để API không bị Crash 500. 
-                // Pointer này vẫn giữ trạng thái Completed & Routed = false.
-                // Người dùng chỉ cần bấm Resume lần nữa là nó sẽ chạy qua mượt mà!
-                _logger.LogWarning("⏳ Pointer {PointerId} is waiting for Join Lock during Resume. Please click Resume again. Reason: {Msg}", pointer.Id, ex.Message);
+                try
+                {
+                    _logger.LogInformation("🚀 Resuming routing for stuck pointer {PointerId}", pointer.Id);
+                    var routeResult = await _orchestrator.HandleStepCompletionAsync(instance.Id, pointer.Id, null);
+                    if (routeResult.IsSuccess)
+                    {
+                        routedAnyThisRound = true;
+                    }
+
+                    if (routeResult.IsFailure)
+                    {
+                        var msg = routeResult.Error?.Message ?? string.Empty;
+                        if (msg.Contains("acquire lock", StringComparison.OrdinalIgnoreCase)
+                            || msg.Contains("join", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasJoinLockBusy = true;
+                            _logger.LogInformation("⏳ Join lock busy for pointer {PointerId}. Round {Round}/{Max}. Reason: {Msg}", pointer.Id, round, maxGlobalRetries, msg);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("⚠️ Resume routing returned failure for pointer {PointerId}: {Code} - {Message}",
+                                pointer.Id,
+                                routeResult.Error?.Code,
+                                routeResult.Error?.Message);
+                        }
+                    }
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("acquire lock", StringComparison.OrdinalIgnoreCase)
+                                                           || ex.Message.Contains("join", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasJoinLockBusy = true;
+                    _logger.LogInformation("⏳ Join lock busy for pointer {PointerId}. Round {Round}/{Max}. Reason: {Msg}", pointer.Id, round, maxGlobalRetries, ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "🔥 Critical error while routing pointer {PointerId} during Resume.", pointer.Id);
+                }
             }
-            catch (Exception ex)
+
+            if (!hasJoinLockBusy)
             {
-                _logger.LogError(ex, "🔥 Critical error while routing pointer {PointerId} during Resume.", pointer.Id);
+                pointers = await _pointerRepo.GetPointersByInstanceIdAsync(instance.Id, ct);
+                var afterCount = pointers.Count(p => p.Status == ExecutionPointerStatus.Completed && !p.Routed);
+
+                if (afterCount == 0)
+                    return Result.Success();
+
+                if (afterCount < beforeCount || routedAnyThisRound)
+                    hadProgress = true;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(120), ct);
+        }
+
+        pointers = await _pointerRepo.GetPointersByInstanceIdAsync(instance.Id, ct);
+        stuckPointers = pointers.Where(p => p.Status == ExecutionPointerStatus.Completed && !p.Routed).ToList();
+
+        if (stuckPointers.Count > 0)
+        {
+            _logger.LogInformation("Resume accepted for workflow {InstanceId}. Remaining stuck pointers: {Count}. Routing will continue asynchronously.",
+                instance.Id,
+                stuckPointers.Count);
+
+            if (!hadProgress)
+            {
+                return Result.Failure(Error.Conflict(
+                    "Execution.ResumeNoProgress",
+                    "Resume không tạo được tiến triển xử lý. Vui lòng thử lại hoặc kiểm tra log lỗi định tuyến."
+                ));
             }
         }
 
         return Result.Success();
+
+
     }
 }

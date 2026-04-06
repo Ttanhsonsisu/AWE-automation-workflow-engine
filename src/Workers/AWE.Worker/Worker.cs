@@ -84,13 +84,21 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             return;
         }
 
-        // 👉 SỬA: CHỈ BẮN LOG KHI ĐÃ CẦM CHẮC LEASE TRONG TAY
+        // BẮN EVENT VÀ LOG CHO FRONTEND BIẾT BƯỚC NÀY ĐANG ĐƯỢC THỰC THI
+        await context.Publish(new StepStartedEvent(
+            InstanceId: cmd.InstanceId,
+            ExecutionPointerId: cmd.ExecutionPointerId,
+            StepId: cmd.NodeId,
+            StartedAt: DateTime.UtcNow
+        ));
+
+        // CHỈ BẮN LOG KHI ĐÃ CẦM CHẮC LEASE TRONG TAY
         await context.Publish(new WriteAuditLogCommand(
             InstanceId: cmd.InstanceId,
             Event: "StepStarted",
             Message: $"Bắt đầu thực thi Node: {cmd.NodeId}",
             Level: Domain.Enums.LogLevel.Information,
-            ExecutionPointerId: cmd.ExecutionPointerId, // Bỏ comment chỗ này
+            ExecutionPointerId: cmd.ExecutionPointerId,
             NodeId: cmd.NodeId,
             WorkerId: Environment.MachineName
         ));
@@ -282,7 +290,8 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             InstanceId: cmd.InstanceId,
             ExecutionPointerId: pointer.Id,
             StepId: cmd.NodeId,
-            ErrorMessage: errorMsg
+            ErrorMessage: errorMsg,
+            FailedAt: DateTime.UtcNow
         ));
 
         await _uow.SaveChangesAsync();

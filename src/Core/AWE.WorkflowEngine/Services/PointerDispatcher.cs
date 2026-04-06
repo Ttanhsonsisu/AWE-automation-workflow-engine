@@ -7,6 +7,7 @@ using AWE.Domain.Enums;
 using AWE.Shared.Consts;
 using AWE.Shared.Extensions; 
 using MassTransit;
+using MassTransit.Transports;
 using Microsoft.Extensions.Logging;
 
 namespace AWE.WorkflowEngine.Services;
@@ -14,7 +15,8 @@ namespace AWE.WorkflowEngine.Services;
 public class PointerDispatcher(
     IVariableResolver resolver,
     ILogger<PointerDispatcher> logger,
-    IMessageScheduler messageScheduler) : IPointerDispatcher
+    IMessageScheduler messageScheduler,
+    IPublishEndpoint publishEndpoint) : IPointerDispatcher
 {
 
     public async Task<ExecutePluginCommand?> CreateDispatchCommand(WorkflowInstance instance, ExecutionPointer pointer, JsonDocument defJson)
@@ -26,6 +28,33 @@ public class PointerDispatcher(
         if (stepModel == null)
         {
             throw new InvalidOperationException($"Step {pointer.StepId} không tồn tại trong Definition.");
+        }
+
+        // =================================================================
+        // Check Configuration & Resolve Variable
+        if ((bool)!stepModel.IsConfigured)
+        {
+            
+            // Cập nhật trạng thái Pointer thành Tạm dừng (Suspended)
+            // Tùy vào Entity của bạn, có thể gán trực tiếp hoặc dùng method của Domain
+            var errorDoc = JsonSerializer.SerializeToDocument(new
+            {
+                Message = "Node chưa được cấu hình đầy đủ. Vui lòng hoàn thiện cấu hình để tiếp tục."
+            });
+
+            pointer.Status = ExecutionPointerStatus.Suspended;
+            pointer.Output = errorDoc;
+
+            await PublishDispatchIssueAsync(
+                instanceId: instance.Id,
+                pointer: pointer,
+                uiStatus: "Suspended",
+                auditEvent: "StepSuspended",
+                auditMessage: "Node chưa được cấu hình đầy đủ. Vui lòng hoàn thiện cấu hình để tiếp tục.",
+                level: AWE.Domain.Enums.LogLevel.Warning,
+                metadataJson: errorDoc.RootElement.GetRawText());
+
+            return null;
         }
 
         // 2. Lấy Tên Plugin THẬT SỰ (Xuyên qua cả BuiltIn lẫn DynamicDll)
@@ -53,10 +82,28 @@ public class PointerDispatcher(
             // log lỗi chi tiết để dễ debug, bao gồm InstanceId, StepId và thông tin lỗi
             logger.LogError("Workflow {InstanceId} FAILED at Step {StepId}. {Error}", instance.Id, pointer.StepId, resolveResult.ErrorMessage);
 
+            await PublishDispatchIssueAsync(
+                instanceId: instance.Id,
+                pointer: pointer,
+                uiStatus: "Failed",
+                auditEvent: "StepFailed",
+                auditMessage: $"Node {pointer.StepId} thất bại ở phase resolve biến.",
+                level: AWE.Domain.Enums.LogLevel.Error,
+                metadataJson: errorDoc.RootElement.GetRawText());
+
             return null; 
         }
 
         string resolvedPayload = resolveResult.ResolvedPayload;
+
+        try
+        {
+            pointer.SetInput(JsonDocument.Parse(resolvedPayload));
+        }
+        catch (JsonException)
+        {
+            pointer.SetInput(JsonDocument.Parse("{}"));
+        }
 
         // =================================================================
         // 2. SIZE CONTROL GUARD (Bảo vệ Message Queue)
@@ -76,6 +123,16 @@ public class PointerDispatcher(
             pointer.MarkAsFailedByEngine(errorDoc);
 
             logger.LogError("Payload limit exceeded for Step {StepId}. Size: {Size} bytes", pointer.StepId, payloadSize);
+
+            await PublishDispatchIssueAsync(
+                instanceId: instance.Id,
+                pointer: pointer,
+                uiStatus: "Failed",
+                auditEvent: "StepFailed",
+                auditMessage: $"Node {pointer.StepId} thất bại do payload vượt quá giới hạn cho phép.",
+                level: AWE.Domain.Enums.LogLevel.Error,
+                metadataJson: errorDoc.RootElement.GetRawText());
+
             return null;
         }
 
@@ -142,5 +199,30 @@ public class PointerDispatcher(
             ExecutionMode: stepModel.ExecutionMode,
             ExecutionMetadataJson: executionMetadataJson
         );
+    }
+
+    private async Task PublishDispatchIssueAsync(
+        Guid instanceId,
+        ExecutionPointer pointer,
+        string uiStatus,
+        string auditEvent,
+        string auditMessage,
+        AWE.Domain.Enums.LogLevel level,
+        string? metadataJson)
+    {
+        await publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+            InstanceId: instanceId,
+            StepId: pointer.StepId,
+            Status: uiStatus,
+            Timestamp: DateTime.UtcNow));
+
+        await publishEndpoint.Publish(new WriteAuditLogCommand(
+            InstanceId: instanceId,
+            Event: auditEvent,
+            Message: auditMessage,
+            Level: level,
+            ExecutionPointerId: pointer.Id,
+            NodeId: pointer.StepId,
+            MetadataJson: metadataJson));
     }
 }

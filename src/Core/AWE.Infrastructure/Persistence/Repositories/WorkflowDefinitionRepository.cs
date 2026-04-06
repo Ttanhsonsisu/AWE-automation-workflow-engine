@@ -72,7 +72,10 @@ public class WorkflowDefinitionRepository(ApplicationDbContext _context) : IWork
         WorkflowDefinition definition,
         CancellationToken cancellationToken = default)
     {
-        _context.WorkflowDefinitions.Update(definition);
+        if (_context.Entry(definition).State == EntityState.Detached)
+        {
+            _context.WorkflowDefinitions.Update(definition);
+        }
         return Task.CompletedTask;
     }
 

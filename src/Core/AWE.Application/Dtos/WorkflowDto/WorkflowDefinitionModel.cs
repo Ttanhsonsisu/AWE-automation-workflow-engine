@@ -17,7 +17,7 @@ public class WorkflowDefinitionModel
 
         return JsonSerializer.Deserialize<WorkflowDefinitionModel>(jsonStr, new JsonSerializerOptions
         {
-            PropertyNameCaseInsensitive = true, // Cứu tinh số 1
+            PropertyNameCaseInsensitive = true, 
             AllowTrailingCommas = true,
             ReadCommentHandling = JsonCommentHandling.Skip
         }) ?? new WorkflowDefinitionModel();
@@ -31,6 +31,7 @@ public class WorkflowStepModel
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public PluginExecutionMode ExecutionMode { get; set; }
+    public bool? IsConfigured { get; set; } = false;
 
     public JsonElement Inputs { get; set; }
     public JsonElement? ExecutionMetadata { get; set; }
