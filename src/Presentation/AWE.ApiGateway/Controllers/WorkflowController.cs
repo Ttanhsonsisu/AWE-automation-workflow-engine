@@ -35,6 +35,20 @@ public class WorkflowController : ApiController
         return HandleResult(result);
     }
 
+    [HttpGet("{instanceId}/context")]
+    public async Task<IActionResult> GetInstanceDataContext(Guid instanceId,
+        [FromServices] IWorkflowInstanceRepository instanceRepo,
+        CancellationToken ct)
+    {
+        var instance = await instanceRepo.GetInstanceByIdAsync(instanceId, ct);
+        if (instance == null)
+        {
+            return HandleResult(Result.Failure<JsonElement>(
+                Error.NotFound("Workflow.Instance.NotFound", $"Không tìm thấy instance '{instanceId}'.")));
+        }
+
+        return HandleResult(Result.Success(instance.ContextData?.RootElement.Clone()));
+    }
     [HttpGet("{instanceId:guid}/steps/{stepId}")]
     public async Task<IActionResult> GetStepDetails(
         Guid instanceId,
