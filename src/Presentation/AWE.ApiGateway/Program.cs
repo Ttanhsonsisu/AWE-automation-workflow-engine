@@ -1,5 +1,6 @@
 ﻿using AWE.ApiGateway.Consumers;
 using AWE.Application;
+using AWE.Contracts.Messages;
 using AWE.Infrastructure;
 using AWE.ServiceDefaults.Extensions;
 using AWE.WorkflowEngine;
@@ -28,6 +29,7 @@ builder.Services.AddAwePersistence(builder.Configuration);
 builder.Services.AddAweMessaging(builder.Configuration, massTransit =>
 {
     massTransit.AddConsumersFromNamespaceContaining<UiNotificationConsumer>();
+    massTransit.AddRequestClient<SubmitWorkflowCommand>();
 });
 
 // add service engine

@@ -10,7 +10,6 @@ using AWE.Application.UseCases.Workflows.ScheduleDefinition;
 using AWE.Application.UseCases.Workflows.UpdateDefinition;
 using AWE.Contracts.Messages;
 using AWE.Domain.Enums;
-using AWE.Infrastructure.Persistence;
 using AWE.Shared.Primitives;
 using MassTransit;
 using Microsoft.AspNetCore.Mvc;
@@ -20,12 +19,12 @@ namespace AWE.ApiGateway.Controllers;
 [Route("api/workflows")]
 public class WorkflowController : ApiController
 {
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IRequestClient<SubmitWorkflowCommand> _submitWorkflowClient;
     private readonly IWorkflowService _workflowService;
 
-    public WorkflowController(IPublishEndpoint publishEndpoint, IWorkflowService workflowService)
+    public WorkflowController(IRequestClient<SubmitWorkflowCommand> submitWorkflowClient, IWorkflowService workflowService)
     {
-        _publishEndpoint = publishEndpoint;
+        _submitWorkflowClient = submitWorkflowClient;
         _workflowService = workflowService;
     }
 
@@ -126,28 +125,38 @@ public class WorkflowController : ApiController
     }
 
     [HttpPost]
-    public async Task<IActionResult> SubmitWorkflow([FromBody] SubmitRequest request, [FromServices] ApplicationDbContext dbcontext)
+    public async Task<IActionResult> SubmitWorkflow([FromBody] SubmitRequest request)
     {
-        // Tạo Command gửi xuống Engine
+        var correlationId = Guid.NewGuid();
+        var inputData = request.InputData switch
+        {
+            null => "{}",
+            JsonElement element => element.GetRawText(),
+            JsonDocument document => document.RootElement.GetRawText(),
+            _ => JsonSerializer.Serialize(request.InputData)
+        };
+
         var command = new SubmitWorkflowCommand(
             DefinitionId: request.DefinitionId,
             JobName: request.JobName ?? $"Job-{DateTime.UtcNow:HHmmss}",
-            InputData: request.InputData?.ToString() ?? "{}", 
-            CorrelationId: Guid.NewGuid(),
+            InputData: inputData,
+            CorrelationId: correlationId,
             IsTest: request.IsTest,
-            StopAtStepId: request.StopAtStepId
-        );
+            StopAtStepId: request.StopAtStepId);
 
-        // Bắn vào RabbitMQ
-        await _publishEndpoint.Publish(command);
+        var response = await _submitWorkflowClient.GetResponse<SubmitWorkflowResponse>(command);
 
-        await dbcontext.SaveChangesAsync();
-
-        return Accepted(new
+        if (!response.Message.IsSuccess || response.Message.InstanceId is null)
         {
-            Message = "Workflow request submitted",
-            TrackingId = command.CorrelationId
-        });
+            return HandleResult(Result.Failure<SubmitWorkflowApiResponse>(Error.Failure(
+                response.Message.ErrorCode ?? "Workflow.Submit.Failed",
+                response.Message.ErrorMessage ?? "Workflow submission failed.")));
+        }
+
+        return HandleResult(Result.Success(new SubmitWorkflowApiResponse(
+            Message: "Workflow request submitted",
+            TrackingId: correlationId,
+            InstanceId: response.Message.InstanceId.Value)));
     }
 
     [HttpPost("definitions")]
@@ -250,6 +259,12 @@ public record SubmitRequest(
     object? InputData,
     bool IsTest = false,
     string? StopAtStepId = null
+);
+
+public record SubmitWorkflowApiResponse(
+    string Message,
+    Guid TrackingId,
+    Guid InstanceId
 );
 
 public record WorkflowStepDetailResponse(

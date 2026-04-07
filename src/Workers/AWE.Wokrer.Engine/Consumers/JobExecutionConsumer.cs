@@ -1,6 +1,5 @@
 ﻿using AWE.Application.Abstractions.CoreEngine;
 using AWE.Contracts.Messages;
-using AWE.Infrastructure.Extensions;
 using MassTransit;
 
 namespace AWE.Wokrer.Engine.Consumers;
@@ -36,7 +35,25 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
             stopAtStepId: cmd.StopAtStepId
         );
 
-        // Extension xử lý Result chuẩn hóa
-        await context.ProcessResultAsync(result, _logger, "StartJob");
+        if (result.IsSuccess)
+        {
+            _logger.LogInformation("✅ [SUCCESS] StartJob completed. InstanceId: {InstanceId}", result.Value);
+
+            await context.RespondAsync(new SubmitWorkflowResponse(
+                IsSuccess: true,
+                InstanceId: result.Value,
+                CorrelationId: cmd.CorrelationId));
+
+            return;
+        }
+
+        _logger.LogWarning("❌ [FAILED] StartJob failed. Code: {Code}, Message: {Message}", result.Error?.Code, result.Error?.Message);
+
+        await context.RespondAsync(new SubmitWorkflowResponse(
+            IsSuccess: false,
+            InstanceId: null,
+            CorrelationId: cmd.CorrelationId,
+            ErrorCode: result.Error?.Code,
+            ErrorMessage: result.Error?.Message));
     }
 }

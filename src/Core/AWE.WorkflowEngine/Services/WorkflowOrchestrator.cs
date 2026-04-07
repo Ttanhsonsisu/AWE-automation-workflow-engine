@@ -128,6 +128,11 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (pendingCommands.Count == 0 && failedStartPointers.Count > 0)
         {
             var firstFailed = failedStartPointers[0];
+            await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                InstanceId: instance.Id,
+                Status: "Failed",
+                Timestamp: DateTime.UtcNow));
+
             await _publishEndpoint.Publish(new WriteAuditLogCommand(
                 InstanceId: instance.Id,
                 Event: "WorkflowFailed",
@@ -251,6 +256,11 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
 
+            await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                InstanceId: instance.Id,
+                Status: "Completed",
+                Timestamp: DateTime.UtcNow));
+
             await _publishEndpoint.Publish(new WriteAuditLogCommand(
                 InstanceId: instance.Id,
                 Event: "WorkflowCompleted",
@@ -359,6 +369,11 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 await _instanceRepo.UpdateInstanceAsync(instance);
                 await _uow.SaveChangesAsync();
 
+                await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                    InstanceId: instance.Id,
+                    Status: "Failed",
+                    Timestamp: DateTime.UtcNow));
+
                 await _publishEndpoint.Publish(new WriteAuditLogCommand(
                     InstanceId: instance.Id,
                     Event: "WorkflowFailed",
@@ -447,6 +462,21 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 pointer.ResetToPending();
                 await _instanceRepo.UpdateInstanceAsync(instance);
                 await _uow.SaveChangesAsync();
+
+                await _publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+                    InstanceId: instance.Id,
+                    StepId: pointer.StepId,
+                    Status: "Retrying",
+                    Timestamp: DateTime.UtcNow));
+
+                await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                    InstanceId: instance.Id,
+                    Event: "StepRetrying",
+                    Message: $"Node {pointer.StepId} đang được retry lần {pointer.RetryCount}/{maxRetries}.",
+                    Level: Domain.Enums.LogLevel.Warning,
+                    ExecutionPointerId: pointer.Id,
+                    NodeId: pointer.StepId));
+
                 retryCommandToPublish = await _dispatcher.CreateDispatchCommand(instance, pointer, def.DefinitionJson);
 
                 if (retryCommandToPublish == null && pointer.Status == ExecutionPointerStatus.Failed)
@@ -454,6 +484,11 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                     instance.Fail();
                     await _instanceRepo.UpdateInstanceAsync(instance);
                     await _uow.SaveChangesAsync();
+
+                    await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                        InstanceId: instanceId,
+                        Status: "Failed",
+                        Timestamp: DateTime.UtcNow));
 
                     await _publishEndpoint.Publish(new WriteAuditLogCommand(
                         InstanceId: instanceId,

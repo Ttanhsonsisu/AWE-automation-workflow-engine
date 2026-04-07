@@ -24,6 +24,14 @@ public record SubmitWorkflowCommand(
     string? StopAtStepId = null // Optional: StepId to stop at for testing/debugging (VD: "Step_3_DoSomething")
 );
 
+public record SubmitWorkflowResponse(
+    bool IsSuccess,
+    Guid? InstanceId,
+    Guid? CorrelationId,
+    string? ErrorCode = null,
+    string? ErrorMessage = null
+);
+
 #endregion
 
 #region Plugin Execution
