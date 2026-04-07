@@ -132,9 +132,10 @@ public class WorkflowController : ApiController
         var command = new SubmitWorkflowCommand(
             DefinitionId: request.DefinitionId,
             JobName: request.JobName ?? $"Job-{DateTime.UtcNow:HHmmss}",
-            InputData: request.InputData?.ToString() ?? "{}", // Chuyển JSON Object thành String
+            InputData: request.InputData?.ToString() ?? "{}", 
             CorrelationId: Guid.NewGuid(),
-            IsTest: request.IsTest
+            IsTest: request.IsTest,
+            StopAtStepId: request.StopAtStepId
         );
 
         // Bắn vào RabbitMQ
@@ -246,8 +247,9 @@ public class WorkflowController : ApiController
 public record SubmitRequest(
     Guid DefinitionId,
     string? JobName,
-    object? InputData ,
-    bool IsTest = false
+    object? InputData,
+    bool IsTest = false,
+    string? StopAtStepId = null
 );
 
 public record WorkflowStepDetailResponse(

@@ -16,11 +16,12 @@ using AWE.Domain.Enums;
 /// Represents an intent and may be rejected.
 /// </remarks>
 public record SubmitWorkflowCommand(
-    Guid DefinitionId,        // Workflow definition to execute
-    string JobName,           // Display name for this execution
-    string InputData,         // Input payload (JSON)
-    Guid? CorrelationId,       // Correlation identifier for end-to-end tracing,
-    bool IsTest = false         // Whether this is a test run (affects logging and monitoring)
+    Guid DefinitionId, // Workflow definition to execute
+    string JobName, // Display name for this execution
+    string InputData, // Input payload (JSON)
+    Guid? CorrelationId, // Correlation identifier for end-to-end tracing,
+    bool IsTest = false, // Whether this is a test run (affects logging and monitoring)
+    string? StopAtStepId = null // Optional: StepId to stop at for testing/debugging (VD: "Step_3_DoSomething")
 );
 
 #endregion

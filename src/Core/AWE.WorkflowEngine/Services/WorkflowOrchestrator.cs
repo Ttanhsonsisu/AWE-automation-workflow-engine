@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 using AWE.Application.Abstractions.CoreEngine;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
@@ -38,13 +39,25 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
     private readonly ILogger<WorkflowOrchestrator> _logger = logger;
 
-    public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId, bool isTest = false)
+    public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId, bool isTest = false, string? stopAtStepId = null)
     {
         var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
         if (def == null) return Result.Failure<Guid>(Error.NotFound("Definition.NotFound", ""));
 
+        var normalizedStopAtStepId = string.IsNullOrWhiteSpace(stopAtStepId) ? null : stopAtStepId.Trim();
+
+        if (!isTest && normalizedStopAtStepId is not null)
+        {
+            return Result.Failure<Guid>(Error.Validation("Workflow.StopAtStep.Invalid", "Chỉ được phép cấu hình điểm dừng (StopAtStepId) trong chế độ chạy thử (isTest = true)."));
+        }
+
+        if (normalizedStopAtStepId is not null && !HasStepDefinition(def.DefinitionJson, normalizedStopAtStepId))
+        {
+            return Result.Failure<Guid>(Error.Validation("Workflow.StopAtStep.NotFound", $"Không tìm thấy step '{normalizedStopAtStepId}' trong workflow definition."));
+        }
+
         // 1. Tạo Context bằng Service
-        var contextResult = _contextManager.InitializeContext(inputData, jobName, correlationId ?? Guid.NewGuid());
+        var contextResult = _contextManager.InitializeContext(inputData, jobName, correlationId ?? Guid.NewGuid(), normalizedStopAtStepId);
         if (contextResult.IsFailure) return Result.Failure<Guid>(contextResult.Error);
 
         // 2. Khởi tạo Instance
@@ -186,6 +199,33 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             // update status for instance and pointer to reflect cancellation
             await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
+            return Result.Success();
+        }
+
+        var stopAtStepId = GetStopAtStepId(instance);
+        if (!string.IsNullOrWhiteSpace(stopAtStepId)
+            && string.Equals(stopAtStepId, pointer.StepId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (instance.Status == WorkflowInstanceStatus.Running)
+            {
+                instance.Suspend();
+            }
+
+            ClearStopAtStepId(instance);
+
+            _logger.LogInformation("Workflow {Id} reached StopAtStepId '{StepId}' and was suspended.", instance.Id, pointer.StepId);
+            await _instanceRepo.UpdateInstanceAsync(instance);
+            await _uow.SaveChangesAsync();
+
+            await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                InstanceId: instance.Id,
+                Event: "WorkflowSuspended",
+                Message: $"Workflow đã dừng tại step '{pointer.StepId}' theo StopAtStepId.",
+                Level: Domain.Enums.LogLevel.Warning,
+                ExecutionPointerId: pointer.Id,
+                NodeId: pointer.StepId
+            ));
+
             return Result.Success();
         }
 
@@ -510,6 +550,52 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // Như vậy hệ thống mới đảm bảo tính Atomic .
         // Tái sử dụng logic điều hướng chuẩn của Engine
         return await HandleStepCompletionAsync(instance.Id, pointer.Id, resumeData);
+    }
+
+    private static string? GetStopAtStepId(WorkflowInstance instance)
+    {
+        if (instance.ContextData.RootElement.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (!instance.ContextData.RootElement.TryGetProperty("Meta", out var meta)
+            || meta.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (!meta.TryGetProperty("StopAtStepId", out var stopAtStepElement)
+            || stopAtStepElement.ValueKind != JsonValueKind.String)
+            return null;
+
+        var stopAtStepId = stopAtStepElement.GetString();
+        return string.IsNullOrWhiteSpace(stopAtStepId) ? null : stopAtStepId;
+    }
+
+    private static void ClearStopAtStepId(WorkflowInstance instance)
+    {
+        var root = JsonNode.Parse(instance.ContextData.RootElement.GetRawText()) as JsonObject;
+        if (root != null && root.TryGetPropertyValue("Meta", out var metaNode) && metaNode is JsonObject meta)
+        {
+            meta.Remove("StopAtStepId");
+            instance.UpdateContext(JsonDocument.Parse(root.ToJsonString()));
+        }
+    }
+
+    private static bool HasStepDefinition(JsonDocument definitionJson, string stepId)
+    {
+        if (!definitionJson.RootElement.TryGetProperty("Steps", out var steps)
+            || steps.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var step in steps.EnumerateArray())
+        {
+            if (!step.TryGetProperty("Id", out var idElement)
+                || idElement.ValueKind != JsonValueKind.String)
+                continue;
+
+            if (string.Equals(idElement.GetString(), stepId, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     // Hàm tiện ích để lấy thông tin Step từ JSON Definition (để đọc cấu hình MaxRetries)

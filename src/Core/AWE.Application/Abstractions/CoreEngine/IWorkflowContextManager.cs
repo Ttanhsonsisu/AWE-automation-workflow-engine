@@ -6,6 +6,6 @@ namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface IWorkflowContextManager
 {
-    Result<JsonDocument> InitializeContext(string inputData, string jobName, Guid correlationId);
+    Result<JsonDocument> InitializeContext(string inputData, string jobName, Guid correlationId, string? stopAtStepId = null);
     void MergeStepOutput(WorkflowInstance instance, string stepId, JsonDocument? stepOutput);
 }

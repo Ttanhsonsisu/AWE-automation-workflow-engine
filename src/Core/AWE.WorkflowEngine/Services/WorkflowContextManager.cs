@@ -8,7 +8,7 @@ namespace AWE.WorkflowEngine.Services;
 
 public class WorkflowContextManager : IWorkflowContextManager
 {
-    public Result<JsonDocument> InitializeContext(string inputData, string jobName, Guid correlationId)
+    public Result<JsonDocument> InitializeContext(string inputData, string jobName, Guid correlationId, string? stopAtStepId = null)
     {
         JsonNode? inputsNode;
         try
@@ -29,7 +29,8 @@ public class WorkflowContextManager : IWorkflowContextManager
             {
                 ["CorrelationId"] = correlationId,
                 ["JobName"] = jobName,
-                ["StartedAt"] = DateTime.UtcNow
+                ["StartedAt"] = DateTime.UtcNow,
+                ["StopAtStepId"] = string.IsNullOrWhiteSpace(stopAtStepId) ? null : stopAtStepId
             }
         };
 
