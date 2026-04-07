@@ -248,26 +248,40 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         if (nextTransitions.Count == 0)
         {
-            // Kết thúc Workflow
-            instance.Complete();
             pointer.MarkAsRouted();
-            _logger.LogInformation("Workflow {Id} Completed successfully.", instanceId);
+            var activePointers = await _pointerRepo.GetActivePointersByInstanceAsync(instance.Id);
+            var hasOtherActivePointers = activePointers.Any(p => p.Id != pointer.Id);
 
-            await _instanceRepo.UpdateInstanceAsync(instance);
-            await _uow.SaveChangesAsync();
+            if (!hasOtherActivePointers)
+            {
+                // Chỉ complete khi KHÔNG còn pointer active nào khác.
+                instance.Complete();
+                _logger.LogInformation("Workflow {Id} Completed successfully.", instanceId);
 
-            await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
-                InstanceId: instance.Id,
-                Status: "Completed",
-                Timestamp: DateTime.UtcNow));
+                await _instanceRepo.UpdateInstanceAsync(instance);
+                await _uow.SaveChangesAsync();
 
-            await _publishEndpoint.Publish(new WriteAuditLogCommand(
-                InstanceId: instance.Id,
-                Event: "WorkflowCompleted",
-                Message: "Quy trình đã hoàn thành xuất sắc toàn bộ các bước.",
-                Level: Domain.Enums.LogLevel.Information,
-                NodeId: "System"
-            ));
+                await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                    InstanceId: instance.Id,
+                    Status: "Completed",
+                    Timestamp: DateTime.UtcNow));
+
+                await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                    InstanceId: instance.Id,
+                    Event: "WorkflowCompleted",
+                    Message: "Quy trình đã hoàn thành xuất sắc toàn bộ các bước.",
+                    Level: Domain.Enums.LogLevel.Information,
+                    NodeId: "System"
+                ));
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Step {StepId} reached terminal path but workflow {InstanceId} still has {ActiveCount} active pointers. Skip completing workflow.",
+                    pointer.StepId,
+                    instance.Id,
+                    activePointers.Count(p => p.Id != pointer.Id));
+            }
         }
         else
         {
