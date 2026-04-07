@@ -202,25 +202,37 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             return Result.Success();
         }
 
+        var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
+
+        // 3. Đánh giá đường đi tiếp theo
+        var nextTransitions = _evaluator.EvaluateTransitions(def!.DefinitionJson, pointer.StepId, instance.ContextData);
+
         var stopAtStepId = GetStopAtStepId(instance);
         if (!string.IsNullOrWhiteSpace(stopAtStepId)
-            && string.Equals(stopAtStepId, pointer.StepId, StringComparison.OrdinalIgnoreCase))
+            && nextTransitions.Any(t => t.IsConditionMet
+                && string.Equals(t.TargetNodeId, stopAtStepId, StringComparison.OrdinalIgnoreCase)))
         {
             if (instance.Status == WorkflowInstanceStatus.Running)
             {
                 instance.Suspend();
             }
 
+            // Đánh dấu pointer hiện tại đã xử lý xong, không cho reroute lại.
+            pointer.MarkAsRouted();
             ClearStopAtStepId(instance);
 
-            _logger.LogInformation("Workflow {Id} reached StopAtStepId '{StepId}' and was suspended.", instance.Id, pointer.StepId);
+            _logger.LogInformation("Workflow {Id} stopped before Step '{StopAtStepId}' at predecessor '{CurrentStepId}'.",
+                instance.Id,
+                stopAtStepId,
+                pointer.StepId);
+
             await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
 
             await _publishEndpoint.Publish(new WriteAuditLogCommand(
                 InstanceId: instance.Id,
                 Event: "WorkflowSuspended",
-                Message: $"Workflow đã dừng tại step '{pointer.StepId}' theo StopAtStepId.",
+                Message: $"Workflow đã dừng tại node trước '{stopAtStepId}' (node hiện tại: '{pointer.StepId}').",
                 Level: Domain.Enums.LogLevel.Warning,
                 ExecutionPointerId: pointer.Id,
                 NodeId: pointer.StepId
@@ -228,12 +240,6 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
             return Result.Success();
         }
-
-
-        var def = await _defRepo.GetDefinitionByIdAsync(instance.DefinitionId);
-
-        // 3. Đánh giá đường đi tiếp theo
-        var nextTransitions = _evaluator.EvaluateTransitions(def!.DefinitionJson, pointer.StepId, instance.ContextData);
 
         if (nextTransitions.Count == 0)
         {
@@ -257,19 +263,28 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         {
             var pointersToDispatch = new List<ExecutionPointer>();
             var joinNodesToCheck = new HashSet<string>();
+            var visitedDeadPathEdges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // 4. Chuẩn bị các Pointer tiếp theo
             foreach (var transition in nextTransitions)
             {
+                var branchId = nextTransitions.Count > 1 ? Guid.NewGuid().ToString() : pointer.BranchId;
+
                 var newPointer = new ExecutionPointer(instance.Id, transition.TargetNodeId,
                     parentTokenId: pointer.Id,
-                    branchId: nextTransitions.Count > 1 ? Guid.NewGuid().ToString() : pointer.BranchId);
+                    branchId: branchId);
 
                 if (!transition.IsConditionMet)
                 {
-                    newPointer.Skip(); // Dead-path
-                    await _pointerRepo.AddPointerAsync(newPointer);
-                    joinNodesToCheck.Add(transition.TargetNodeId);
+                    await PropagateDeadPathAsync(
+                        instance: instance,
+                        definitionJson: def.DefinitionJson,
+                        sourceStepId: pointer.StepId,
+                        parentTokenId: pointer.Id,
+                        branchId: branchId,
+                        targetStepId: transition.TargetNodeId,
+                        joinNodesToCheck: joinNodesToCheck,
+                        visitedDeadPathEdges: visitedDeadPathEdges);
                 }
                 else
                 {
@@ -532,10 +547,16 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (instance == null)
             return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow not found."));
 
-        if (instance.Status == WorkflowInstanceStatus.Suspended)
-            instance.Resume();
-        else if (instance.Status != WorkflowInstanceStatus.Running)
+        if (instance.Status != WorkflowInstanceStatus.Running
+            && instance.Status != WorkflowInstanceStatus.Suspended)
             return Result.Failure(Error.Unexpected("Instance.Invalid", "Workflow is not resumable."));
+
+        if (instance.Status == WorkflowInstanceStatus.Suspended)
+        {
+            _logger.LogInformation("Workflow {Id} is suspended. Wake-up for pointer {PointerId} will not switch status to Running.",
+                instance.Id,
+                pointer.Id);
+        }
 
         // =================================================================
         // FR-11: WAKE UP & INJECT DATA (Đánh thức và Bơm dữ liệu)
@@ -596,6 +617,93 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         }
 
         return false;
+    }
+
+    private async Task PropagateDeadPathAsync(
+        WorkflowInstance instance,
+        JsonDocument definitionJson,
+        string sourceStepId,
+        Guid parentTokenId,
+        string branchId,
+        string targetStepId,
+        HashSet<string> joinNodesToCheck,
+        HashSet<string> visitedDeadPathEdges)
+    {
+        var edgeKey = $"{sourceStepId}->{targetStepId}";
+        if (!visitedDeadPathEdges.Add(edgeKey))
+        {
+            return;
+        }
+
+        var skippedPointer = new ExecutionPointer(
+            instanceId: instance.Id,
+            stepId: targetStepId,
+            parentTokenId: parentTokenId,
+            branchId: branchId);
+
+        skippedPointer.Skip();
+        await _pointerRepo.AddPointerAsync(skippedPointer);
+
+        if (_evaluator.IsJoinNode(definitionJson, targetStepId))
+        {
+            joinNodesToCheck.Add(targetStepId);
+            return;
+        }
+
+        var outgoingTargets = GetOutgoingTargetNodeIds(definitionJson, targetStepId);
+        if (outgoingTargets.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var nextTarget in outgoingTargets)
+        {
+            var nextBranchId = outgoingTargets.Count > 1 ? Guid.NewGuid().ToString() : branchId;
+            await PropagateDeadPathAsync(
+                instance: instance,
+                definitionJson: definitionJson,
+                sourceStepId: targetStepId,
+                parentTokenId: skippedPointer.Id,
+                branchId: nextBranchId,
+                targetStepId: nextTarget,
+                joinNodesToCheck: joinNodesToCheck,
+                visitedDeadPathEdges: visitedDeadPathEdges);
+        }
+    }
+
+    private static List<string> GetOutgoingTargetNodeIds(JsonDocument definitionJson, string sourceStepId)
+    {
+        var result = new List<string>();
+
+        if (!definitionJson.RootElement.TryGetProperty("Transitions", out var transitions)
+            || transitions.ValueKind != JsonValueKind.Array)
+        {
+            return result;
+        }
+
+        foreach (var transition in transitions.EnumerateArray())
+        {
+            if (!transition.TryGetProperty("Source", out var source)
+                || source.ValueKind != JsonValueKind.String
+                || !string.Equals(source.GetString(), sourceStepId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!transition.TryGetProperty("Target", out var target)
+                || target.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var targetStepId = target.GetString();
+            if (!string.IsNullOrWhiteSpace(targetStepId))
+            {
+                result.Add(targetStepId);
+            }
+        }
+
+        return result;
     }
 
     // Hàm tiện ích để lấy thông tin Step từ JSON Definition (để đọc cấu hình MaxRetries)
