@@ -108,10 +108,20 @@ Payload:
 ```
 
 Hiện tại đã có phát ở các case:
-- `Suspended`: khi suspend execution
+- `Suspended`: khi suspend execution hoặc khi chạy test có `stopAtStepId` và engine dừng trước step target
 - `Running`: khi resume execution
 - `Completed`: khi workflow hoàn tất
 - `Failed`: khi workflow fail ở các nhánh terminal
+
+### 5.2.1 Sequence riêng cho test với `stopAtStepId`
+
+Ở run test có `stopAtStepId`, FE nên kỳ vọng chuỗi event:
+
+1. `NodeStatusChanged(stepId, "Running", ...)`
+2. `NodeStatusChanged(stepId, "Completed", ...)`
+3. `WorkflowStatusChanged("Suspended", ...)`
+
+Ý nghĩa: step hiện tại đã chạy xong, nhưng workflow chủ động dừng trước step đích để phục vụ debug/test.
 
 ### 5.3 Workflow log stream
 Server method: `WorkflowLogReceived`

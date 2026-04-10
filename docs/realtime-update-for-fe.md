@@ -1,15 +1,13 @@
-﻿# Realtime update cho FE (bản cập nhật mới)
-
-Tài liệu này chỉ mô tả **phần cập nhật mới** để FE tích hợp nhanh, không thay thế tài liệu tổng `docs/realtime-intergration.md`.
-
----
-
-## 1) Cập nhật mới: Workflow status realtime ở trạng thái terminal
+﻿## 1) Cập nhật mới: Workflow status realtime ở trạng thái terminal + stop test
 
 Backend đã bổ sung bắn `UiWorkflowStatusChangedEvent` cho các trạng thái kết thúc luồng:
 
 - `Completed`
 - `Failed`
+
+Và với chế độ test có `stopAtStepId`, backend sẽ bắn thêm:
+
+- `Suspended` (khi workflow dừng trước node được cấu hình trong `stopAtStepId`)
 
 ### FE cần xử lý
 Lắng nghe event SignalR:
@@ -18,8 +16,9 @@ Lắng nghe event SignalR:
 Trong đó `status` có thể nhận thêm:
 - `Completed`
 - `Failed`
+- `Suspended` (khi stop theo `stopAtStepId` hoặc suspend runtime)
 
-> Trước đây chủ yếu có `Running`/`Suspended`, nên FE có thể chưa cập nhật badge terminal theo socket.
+> Bổ sung mới: trường hợp `stopAtStepId` giờ đã có tín hiệu `WorkflowStatusChanged("Suspended")` rõ ràng qua SignalR.
 
 ---
 
@@ -38,7 +37,19 @@ Backend đã bổ sung bắn event retry khi engine quyết định retry step.
 
 ---
 
-## 3) Gợi ý mapping UI nhanh
+## 3) Cập nhật sequence cho case `stopAtStepId`
+
+Khi chạy test với `stopAtStepId`, FE sẽ nhận lần lượt:
+
+1. `NodeStatusChanged` -> `Running` (step hiện tại bắt đầu chạy)
+2. `NodeStatusChanged` -> `Completed` (step hiện tại chạy xong)
+3. `WorkflowStatusChanged` -> `Suspended` (workflow dừng trước step target)
+
+FE có thể dùng step (2) để tô xanh node vừa chạy xong, và step (3) để khóa nút `Run`/hiện badge `Stopped for test`.
+
+---
+
+## 4) Gợi ý mapping UI nhanh
 
 ### Workflow badge
 - `Running` -> đang chạy
@@ -54,23 +65,9 @@ Backend đã bổ sung bắn event retry khi engine quyết định retry step.
 
 ---
 
-## 4) Quy tắc merge state phía FE
-
-Khuyến nghị de-duplicate event theo key:
-
-- Node status: `(stepId, status, timestamp)`
-- Workflow status: `(status, timestamp)`
-- Log: `(stepId, level, message, timestamp)`
-
-Khi reconnect:
-1. gọi snapshot API,
-2. reconcile lại state,
-3. tiếp tục nhận delta qua socket.
-
----
-
-## 5) Backward compatibility
+## 6) Backward compatibility
 
 Các event cũ không bị thay đổi payload. FE chỉ cần bổ sung xử lý thêm:
 - workflow terminal status (`Completed`, `Failed`),
+- workflow stop theo test (`Suspended` do `stopAtStepId`),
 - node status mới `Retrying`.

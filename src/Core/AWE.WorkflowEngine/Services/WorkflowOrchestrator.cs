@@ -234,6 +234,11 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             await _instanceRepo.UpdateInstanceAsync(instance);
             await _uow.SaveChangesAsync();
 
+            await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                InstanceId: instance.Id,
+                Status: "Suspended",
+                Timestamp: DateTime.UtcNow));
+
             await _publishEndpoint.Publish(new WriteAuditLogCommand(
                 InstanceId: instance.Id,
                 Event: "WorkflowSuspended",
