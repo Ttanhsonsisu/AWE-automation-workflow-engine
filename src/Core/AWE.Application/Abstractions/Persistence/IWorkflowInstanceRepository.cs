@@ -14,12 +14,16 @@ public interface IWorkflowInstanceRepository
         int size = 10,
         IReadOnlyCollection<Guid>? definitionIds = null,
         WorkflowInstanceStatus? status = null,
+        DateTime? startTimeFrom = null,
+        DateTime? startTimeTo = null,
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
         CancellationToken cancellationToken = default);
     Task<long> CountInstancesAsync(
         IReadOnlyCollection<Guid>? definitionIds = null,
         WorkflowInstanceStatus? status = null,
+        DateTime? startTimeFrom = null,
+        DateTime? startTimeTo = null,
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
         CancellationToken cancellationToken = default);

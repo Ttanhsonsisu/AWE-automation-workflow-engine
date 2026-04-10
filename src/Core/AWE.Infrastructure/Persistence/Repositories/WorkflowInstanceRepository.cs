@@ -52,26 +52,31 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
         int size = 10,
         IReadOnlyCollection<Guid>? definitionIds = null,
         WorkflowInstanceStatus? status = null,
+        DateTime? startTimeFrom = null,
+        DateTime? startTimeTo = null,
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
         CancellationToken cancellationToken = default)
     {
-        return await ApplyFilters(_context.WorkflowInstances.AsNoTracking(), definitionIds, status, createdFrom, createdTo)
-             .Include(x => x.Definition)
-             .OrderByDescending(x => x.CreatedAt)
-             .Skip((page - 1) * size)
-             .Take(size)
-             .ToListAsync(cancellationToken);
+        return await ApplyFilters(_context.WorkflowInstances.AsNoTracking(), definitionIds, status, startTimeFrom, startTimeTo, createdFrom, createdTo)
+            //.Where(x => x.IsTest == false)
+            .Include(x => x.Definition)
+            .OrderByDescending(x => x.CreatedAt)
+            .Skip((page - 1) * size)
+            .Take(size)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<long> CountInstancesAsync(
         IReadOnlyCollection<Guid>? definitionIds = null,
         WorkflowInstanceStatus? status = null,
+        DateTime? startTimeFrom = null,
+        DateTime? startTimeTo = null,
         DateTime? createdFrom = null,
         DateTime? createdTo = null,
         CancellationToken cancellationToken = default)
     {
-        return await ApplyFilters(_context.WorkflowInstances.AsNoTracking(), definitionIds, status, createdFrom, createdTo)
+        return await ApplyFilters(_context.WorkflowInstances.AsNoTracking(), definitionIds, status, startTimeFrom, startTimeTo, createdFrom, createdTo)
             .LongCountAsync(cancellationToken);
     }
 
@@ -116,6 +121,8 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
         IQueryable<WorkflowInstance> query,
         IReadOnlyCollection<Guid>? definitionIds,
         WorkflowInstanceStatus? status,
+        DateTime? startTimeFrom,
+        DateTime? startTimeTo,
         DateTime? createdFrom,
         DateTime? createdTo)
     {
@@ -127,6 +134,16 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
         if (status.HasValue)
         {
             query = query.Where(x => x.Status == status.Value);
+        }
+
+        if (startTimeFrom.HasValue)
+        {
+            query = query.Where(x => x.StartTime >= startTimeFrom.Value);
+        }
+
+        if (startTimeTo.HasValue)
+        {
+            query = query.Where(x => x.StartTime <= startTimeTo.Value);
         }
 
         if (createdFrom.HasValue)

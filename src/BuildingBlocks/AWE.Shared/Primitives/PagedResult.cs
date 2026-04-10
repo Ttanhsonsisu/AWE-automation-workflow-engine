@@ -18,7 +18,7 @@ public sealed class PagedResult<T>
         TotalCount = totalCount;
     }
 
-    public static PagedResult<T> Create(IEnumerable<T> items, int totalCount, int pageNumber, int pageSize)
+    public static PagedResult<T>    Create(IEnumerable<T> items, int totalCount, int pageNumber, int pageSize)
     {
         ArgumentNullException.ThrowIfNull(items);
 

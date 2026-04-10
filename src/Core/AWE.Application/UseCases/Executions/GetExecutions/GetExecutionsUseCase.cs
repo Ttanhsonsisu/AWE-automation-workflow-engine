@@ -16,6 +16,8 @@ public class GetExecutionsRequest
     public int Size { get; set; } = 10;
     public Guid[]? DefinitionIds { get; set; }
     public WorkflowInstanceStatus? Status { get; set; }
+    public DateTime? StartTimeFrom { get; set; }
+    public DateTime? StartTimeTo { get; set; }
     public DateTime? CreatedFrom { get; set; }
     public DateTime? CreatedTo { get; set; }
 }
@@ -61,14 +63,36 @@ public class GetExecutionsUseCase : IGetExecutionsUseCase
                 Error.Validation("Execution.Paging.InvalidDateRange", "createdFrom phải nhỏ hơn hoặc bằng createdTo"));
         }
 
-        var totalCountLong = await _repository.CountInstancesAsync(definitionIds, request.Status, request.CreatedFrom, request.CreatedTo, cancellationToken);
+        if (request.StartTimeFrom.HasValue && request.StartTimeTo.HasValue && request.StartTimeFrom > request.StartTimeTo)
+        {
+            return Result.Failure<PagedResult<ExecutionItemDto>>(
+                Error.Validation("Execution.Paging.InvalidStartTimeRange", "startTimeFrom phải nhỏ hơn hoặc bằng startTimeTo"));
+        }
+
+        var totalCountLong = await _repository.CountInstancesAsync(
+            definitionIds,
+            request.Status,
+            request.StartTimeFrom,
+            request.StartTimeTo,
+            request.CreatedFrom,
+            request.CreatedTo,
+            cancellationToken);
         if (totalCountLong > int.MaxValue)
         {
             return Result.Failure<PagedResult<ExecutionItemDto>>(
                 Error.Failure("Execution.Paging.TotalCountOverflow", "Total execution count is too large."));
         }
 
-        var instances = await _repository.GetInstancesAsync(page, size, definitionIds, request.Status, request.CreatedFrom, request.CreatedTo, cancellationToken);
+        var instances = await _repository.GetInstancesAsync(
+            page,
+            size,
+            definitionIds,
+            request.Status,
+            request.StartTimeFrom,
+            request.StartTimeTo,
+            request.CreatedFrom,
+            request.CreatedTo,
+            cancellationToken);
         var descendants = await LoadDescendantsAsync(instances.Select(x => x.Id).ToArray(), cancellationToken);
 
         var allInstances = instances

@@ -19,6 +19,8 @@ public class ExecutionController : ApiController
         [FromQuery] int size,
         [FromQuery] Guid[]? definitionIds,
         [FromQuery] WorkflowInstanceStatus? status,
+        [FromQuery] DateTime? startTimeFrom,
+        [FromQuery] DateTime? startTimeTo,
         [FromQuery] DateTime? createdFrom,
         [FromQuery] DateTime? createdTo,
         [FromServices] IGetExecutionsUseCase useCase,
@@ -30,6 +32,8 @@ public class ExecutionController : ApiController
             Size = size,
             DefinitionIds = definitionIds,
             Status = status,
+            StartTimeFrom = startTimeFrom,
+            StartTimeTo = startTimeTo,
             CreatedFrom = createdFrom,
             CreatedTo = createdTo
         };

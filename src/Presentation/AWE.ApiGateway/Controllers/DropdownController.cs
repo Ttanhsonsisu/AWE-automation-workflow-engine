@@ -1,4 +1,5 @@
-﻿using AWE.Application.Services;
+﻿using AWE.Application.Abstractions.Persistence;
+using AWE.Application.Services;
 using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 using Microsoft.AspNetCore.Mvc;
@@ -6,9 +7,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/dropdown")]
-public class DropdownController(IPluginService pluginService) : ApiController
+public class DropdownController(IPluginService pluginService, IWorkflowDefinitionRepository definitionRepository) : ApiController
 {
     private readonly IPluginService _pluginService = pluginService;
+    private readonly IWorkflowDefinitionRepository _definitionRepository = definitionRepository;
+
+    [HttpGet("workflow-definition")]
+    public async Task<IActionResult> ListWorkflowDefinitionDropdownAsync(CancellationToken ct)
+    {
+        var definitions = await _definitionRepository.GetAllDefinitionsAsync(ct);
+
+        var result = definitions.Select(x => new WorkflowDefinitionDropdownItemDto(
+            Id: x.Id,
+            Name: x.Name,
+            Version: x.Version,
+            Description: x.Description));
+
+        return HandleResult(Result.Success(result));
+    }
 
     [HttpGet("version/package")]
 
@@ -32,3 +48,4 @@ public class DropdownController(IPluginService pluginService) : ApiController
 }
 
 public record EnumDropdownItemDto(string Value, string Label);
+public record WorkflowDefinitionDropdownItemDto(Guid Id, string Name, int Version, string? Description);
