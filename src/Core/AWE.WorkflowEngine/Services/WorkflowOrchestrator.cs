@@ -543,6 +543,24 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
                 // call SERVICE XỬ LÝ SAGA
                 compensateCommandsToPublish = await _compensationService.TriggerCompensationAsync(instance, def!.DefinitionJson);
+
+                if (compensateCommandsToPublish.Any())
+                {
+                    await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                        InstanceId: instanceId,
+                        Status: "Compensating",
+                        Timestamp: DateTime.UtcNow));
+                }
+                else
+                {
+                    instance.Fail();
+                    instance.EndTime = DateTime.UtcNow;
+
+                    await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                        InstanceId: instanceId,
+                        Status: "Failed",
+                        Timestamp: DateTime.UtcNow));
+                }
             }
 
             // Tương lai: Cần thêm logic để track xem khi nào tất cả lệnh Compensate chạy xong thì mới đổi status thành Compensated.

@@ -58,13 +58,48 @@ public class RetryExecutionUseCase(
         instance.Status = Domain.Enums.WorkflowInstanceStatus.Running;
 
         var pendingCommands = new List<ExecutePluginCommand>();
+        var failedPointersOnRedispatch = new List<Domain.Entities.ExecutionPointer>();
 
         // 3. Reset các Node lỗi và đẩy lại vào Message Broker
         foreach (var pointer in failedPointers)
         {
             pointer.ResetToPending(); // Hàm bạn đã viết trong Entity (reset Status, RetryCount)
             var command = await _dispatcher.CreateDispatchCommand(instance, pointer, def!.DefinitionJson);
-            if (command != null) pendingCommands.Add(command);
+            if (command != null)
+            {
+                pendingCommands.Add(command);
+            }
+            else if (pointer.Status == Domain.Enums.ExecutionPointerStatus.Failed)
+            {
+                failedPointersOnRedispatch.Add(pointer);
+            }
+        }
+
+        if (failedPointersOnRedispatch.Any())
+        {
+            instance.Fail();
+            instance.EndTime = DateTime.UtcNow;
+
+            await _uow.SaveChangesAsync(ct);
+
+            var firstFailed = failedPointersOnRedispatch[0];
+            await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                InstanceId: instance.Id,
+                Status: "Failed",
+                Timestamp: DateTime.UtcNow
+            ), ct);
+
+            await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                InstanceId: instance.Id,
+                Event: "WorkflowFailed",
+                Message: $"Retry thất bại tại node {firstFailed.StepId} do lỗi resolve/dispatch.",
+                Level: AWE.Domain.Enums.LogLevel.Error,
+                ExecutionPointerId: firstFailed.Id,
+                NodeId: firstFailed.StepId,
+                MetadataJson: firstFailed.Output?.RootElement.GetRawText()
+            ), ct);
+
+            return Result.Success();
         }
 
         // LƯU DATABASE TRƯỚC (Đổi state từ Failed -> Pending trên ổ cứng)

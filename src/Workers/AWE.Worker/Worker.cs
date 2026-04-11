@@ -286,13 +286,14 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
         pointer.MarkAsFailed(_workerId, errorDoc);
         //await _uow.SaveChangesAsync();
 
+        var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}failed";
         await context.Publish(new StepFailedEvent(
             InstanceId: cmd.InstanceId,
             ExecutionPointerId: pointer.Id,
             StepId: cmd.NodeId,
             ErrorMessage: errorMsg,
             FailedAt: DateTime.UtcNow
-        ));
+        ), ctx => ctx.SetRoutingKey(routingKey));
 
         await _uow.SaveChangesAsync();
     }
