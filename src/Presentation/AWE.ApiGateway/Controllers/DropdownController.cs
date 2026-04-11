@@ -45,6 +45,34 @@ public class DropdownController(IPluginService pluginService, IWorkflowDefinitio
 
         return HandleResult(Result.Success(statuses));
     }
+
+    [HttpGet("plugin-execution-mode")]
+    public IActionResult GetPluginExecutionModes()
+    {
+        var modes = Enum.GetValues<PluginExecutionMode>()
+            .Select(x => new EnumDropdownItemDto(
+                Value: x.ToString(),
+                Label: x.ToString()))
+            .ToList();
+
+        return HandleResult(Result.Success(modes));
+    }
+
+    [HttpGet("plugin-category")]
+    public async Task<IActionResult> GetPluginCategories(CancellationToken ct)
+    {
+        var result = await _pluginService.ListPluginCategoriesAsync(ct);
+        if (result.IsFailure)
+        {
+            return HandleFailure(result.Error!);
+        }
+
+        var categories = result.Value
+            .Select(x => new EnumDropdownItemDto(Value: x, Label: x))
+            .ToList();
+
+        return HandleResult(Result.Success(categories));
+    }
 }
 
 public record EnumDropdownItemDto(string Value, string Label);

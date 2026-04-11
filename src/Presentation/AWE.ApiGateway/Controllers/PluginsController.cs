@@ -30,9 +30,15 @@ public class PluginsController(IPluginService pluginService) : ApiController
     }
 
     [HttpGet("packages")]
-    public async Task<IActionResult> ListPackages(CancellationToken ct)
+    public async Task<IActionResult> ListPackages(
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 10,
+        [FromQuery] string? search = null,
+        [FromQuery] PluginExecutionMode? executionMode = null,
+        [FromQuery] string? category = null,
+        CancellationToken ct = default)
     {
-        var result = await _pluginService.ListPackagesAsync(ct);
+        var result = await _pluginService.ListPackagesAsync(page, size, search, executionMode, category, ct);
         return HandleResult(result);
     }
 

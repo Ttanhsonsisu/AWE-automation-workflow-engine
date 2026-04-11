@@ -18,7 +18,15 @@ public interface IPluginService
         string? description,
         CancellationToken ct = default);
 
-    Task<Result<IReadOnlyList<PluginPackageDto>>> ListPackagesAsync(CancellationToken ct = default);
+    Task<Result<PagedResult<PluginPackageListItemDto>>> ListPackagesAsync(
+        int page,
+        int size,
+        string? search = null,
+        PluginExecutionMode? executionMode = null,
+        string? category = null,
+        CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<string>>> ListPluginCategoriesAsync(CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<CatalogGroupDto>>> GetCatalogAsync(CancellationToken ct = default);
 

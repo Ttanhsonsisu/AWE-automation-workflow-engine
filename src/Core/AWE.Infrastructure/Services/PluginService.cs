@@ -9,9 +9,7 @@ using AWE.Application.Services;
 using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Domain.Errors;
-using AWE.Infrastructure.Persistence.Repositories;
 using AWE.Shared.Primitives;
-using Microsoft.EntityFrameworkCore.ChangeTracking.Internal;
 
 namespace AWE.Infrastructure.Services;
 
@@ -54,12 +52,96 @@ public class PluginService(
         return new PluginPackageDto(pkg.Id, pkg.UniqueName, pkg.DisplayName,pkg.ExecutionMode,pkg.Category, pkg.Icon, pkg.Description);
     }
 
-    public async Task<Result<IReadOnlyList<PluginPackageDto>>> ListPackagesAsync(CancellationToken ct = default)
+    public async Task<Result<PagedResult<PluginPackageListItemDto>>> ListPackagesAsync(
+        int page,
+        int size,
+        string? search = null,
+        PluginExecutionMode? executionMode = null,
+        string? category = null,
+        CancellationToken ct = default)
     {
-        var list = await _packages.ListAsync(ct);
-        var dtos = list.Select(x => new PluginPackageDto(x.Id, x.UniqueName, x.DisplayName, x.ExecutionMode, x.Category, x.Icon, x.Description)).ToList();
+        var normalizedPage = page > 0 ? page : 1;
+        var normalizedSize = size > 0 ? size : 10;
+        var normalizedSearch = search?.Trim();
+        var normalizedCategory = category?.Trim();
 
-        return Result.Success<IReadOnlyList<PluginPackageDto>>(dtos);
+        var builtInItems = _pluginRegistry.GetAllPlugins()
+            .Select(p => new PluginPackageListItemDto(
+                Id: null,
+                UniqueName: p.Name,
+                DisplayName: p.DisplayName,
+                ExecutionMode: PluginExecutionMode.BuiltIn,
+                Category: p.Category,
+                Icon: p.Icon,
+                Description: p.Description,
+                LatestVersion: null,
+                IsBuiltIn: true));
+
+        var customPackages = await _packages.ListAsync(ct);
+        var customItems = customPackages.Select(x => new PluginPackageListItemDto(
+            Id: x.Id,
+            UniqueName: x.UniqueName,
+            DisplayName: x.DisplayName,
+            ExecutionMode: x.ExecutionMode,
+            Category: x.Category,
+            Icon: x.Icon,
+            Description: x.Description,
+            LatestVersion: x.Versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault()?.Version,
+            IsBuiltIn: false));
+
+        var query = builtInItems.Concat(customItems).AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            query = query.Where(x =>
+                x.DisplayName.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase)
+                || x.UniqueName.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (executionMode.HasValue)
+        {
+            query = query.Where(x => x.ExecutionMode == executionMode.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedCategory))
+        {
+            query = query.Where(x => string.Equals(x.Category, normalizedCategory, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var ordered = query
+            .OrderBy(x => x.DisplayName)
+            .ToList();
+
+        var totalCount = ordered.Count;
+        var pagedItems = ordered
+            .Skip((normalizedPage - 1) * normalizedSize)
+            .Take(normalizedSize)
+            .ToList();
+
+        return Result.Success(PagedResult<PluginPackageListItemDto>.Create(
+            pagedItems,
+            totalCount,
+            normalizedPage,
+            normalizedSize));
+    }
+
+    public async Task<Result<IReadOnlyList<string>>> ListPluginCategoriesAsync(CancellationToken ct = default)
+    {
+        var builtInCategories = _pluginRegistry.GetAllPlugins()
+            .Select(x => x.Category)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        var customCategories = (await _packages.ListAsync(ct))
+            .Select(x => x.Category)
+            .Where(x => !string.IsNullOrWhiteSpace(x));
+
+        var categories = builtInCategories
+            .Concat(customCategories)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToList();
+
+        return Result.Success<IReadOnlyList<string>>(categories);
     }
 
     public async Task<Result<PluginDetailDto>> GetPluginDetailsAsync(
