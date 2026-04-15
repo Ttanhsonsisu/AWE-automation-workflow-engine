@@ -2,12 +2,15 @@
 using AWE.ApiGateway.Dtos.Requests;
 using AWE.Application.Services;
 using AWE.Domain.Enums;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/plugins")]
+[Authorize(Policy = AppPolicies.RequireEditor)]
 public class PluginsController(IPluginService pluginService) : ApiController
 {
     private readonly IPluginService _pluginService = pluginService;

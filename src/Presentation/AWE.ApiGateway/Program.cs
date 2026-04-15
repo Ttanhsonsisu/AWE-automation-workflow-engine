@@ -1,11 +1,17 @@
-﻿using AWE.ApiGateway.Consumers;
+﻿using System.Security.Claims;
+using System.Text.Json;
+using AWE.ApiGateway.Consumers;
+using AWE.ApiGateway.Middlewares;
 using AWE.Application;
 using AWE.Contracts.Messages;
 using AWE.Infrastructure;
 using AWE.ServiceDefaults.Extensions;
+using AWE.Shared.Consts;
 using AWE.WorkflowEngine;
 using AWE.WorkflowEngine.Services;
 using MassTransit;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 // ================================================================
 // Application bootstrap
@@ -17,6 +23,61 @@ var builder = WebApplication.CreateBuilder(args);
 // Register common service defaults (logging, health checks, etc.)
 builder.AddServiceDefaults();
 
+builder.Services.AddMemoryCache();
+// config jwt authentication (adjust as needed for your auth setup)
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        // URL Realm của Keycloak (Lấy từ biến môi trường hoặc fix cứng khi Dev)
+        options.Authority = "http://localhost:8081/realms/awe-auth/";
+        options.RequireHttpsMetadata = false; // Tắt bắt buộc HTTPS ở môi trường Dev
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateAudience = false, // Môi trường Dev có thể bỏ qua check Audience
+            NameClaimType = "preferred_username"
+        };
+
+        // 2. BÍ KÍP MAP ROLE TỪ KEYCLOAK SANG CHUẨN .NET
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                if (context.Principal?.Identity is ClaimsIdentity identity)
+                {
+                    // Đọc field realm_access trong Token của Keycloak
+                    var realmAccessClaim = identity.FindFirst("realm_access")?.Value;
+                    if (!string.IsNullOrEmpty(realmAccessClaim))
+                    {
+                        var realmAccess = JsonDocument.Parse(realmAccessClaim);
+                        if (realmAccess.RootElement.TryGetProperty("roles", out var rolesElement))
+                        {
+                            // Đẩy từng role vào Claims của .NET
+                            foreach (var role in rolesElement.EnumerateArray())
+                            {
+                                identity.AddClaim(new Claim(ClaimTypes.Role, role.GetString()!));
+                            }
+                        }
+                    }
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AppPolicies.RequireAdmin, policy =>
+        policy.RequireRole(AppRoles.SystemAdmin));
+
+    options.AddPolicy(AppPolicies.RequireEditor, policy =>
+        policy.RequireRole(AppRoles.SystemAdmin, AppRoles.WorkflowEditor));
+
+    options.AddPolicy(AppPolicies.RequireOperator, policy =>
+        policy.RequireRole(AppRoles.Operator, AppRoles.SystemAdmin));
+});
 
 // ------------------------------------------------------------
 // Infrastructure configuration
@@ -84,10 +145,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseCors("AllowAll");
+
 app.UseAuthentication();
+
+app.UseUserLazySync();
+
 app.UseAuthorization();
 
-app.UseCors("AllowAll");
 app.MapControllers();
 app.MapHub<WorkflowHub>("/hubs/workflow");
 

@@ -1,10 +1,13 @@
 ﻿using System.Reflection.Metadata;
 using AWE.Application.UseCases.Audit;
+using AWE.Shared.Consts;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/audit-logs")]
+[Authorize(Policy = AppPolicies.RequireAdmin)]
 public class AuditLogController : ApiController
 {
 

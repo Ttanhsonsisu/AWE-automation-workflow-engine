@@ -1,4 +1,5 @@
 ﻿using AWE.Application.UseCases.Approvals.SubmitApproval;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
@@ -14,6 +15,7 @@ public class ApprovalController : ApiController
     }
 
     [HttpPost("submit")]
+    [AllowAnonymous]
     public async Task<IActionResult> SubmitApproval([FromQuery] string token, [FromBody] SubmitApprovalRequest payload, CancellationToken cancellationToken)
     {
         // 1. Map token sang payload

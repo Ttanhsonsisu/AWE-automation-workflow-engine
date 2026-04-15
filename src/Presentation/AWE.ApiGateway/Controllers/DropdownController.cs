@@ -1,18 +1,22 @@
 ﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Application.Services;
 using AWE.Domain.Enums;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/dropdown")]
+[Authorize]
 public class DropdownController(IPluginService pluginService, IWorkflowDefinitionRepository definitionRepository) : ApiController
 {
     private readonly IPluginService _pluginService = pluginService;
     private readonly IWorkflowDefinitionRepository _definitionRepository = definitionRepository;
 
     [HttpGet("workflow-definition")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> ListWorkflowDefinitionDropdownAsync(CancellationToken ct)
     {
         var definitions = await _definitionRepository.GetAllDefinitionsAsync(ct);
@@ -27,6 +31,7 @@ public class DropdownController(IPluginService pluginService, IWorkflowDefinitio
     }
 
     [HttpGet("version/package")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
 
     public async Task<IActionResult> ListVersionPackageDropDownAsyn([FromQuery] Guid packageId, CancellationToken ct)
     {
@@ -35,6 +40,7 @@ public class DropdownController(IPluginService pluginService, IWorkflowDefinitio
     }
 
     [HttpGet("workflow-instance-status")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
     public IActionResult GetWorkflowInstanceStatuses()
     {
         var statuses = Enum.GetValues<WorkflowInstanceStatus>()
@@ -47,6 +53,7 @@ public class DropdownController(IPluginService pluginService, IWorkflowDefinitio
     }
 
     [HttpGet("plugin-execution-mode")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public IActionResult GetPluginExecutionModes()
     {
         var modes = Enum.GetValues<PluginExecutionMode>()
@@ -59,6 +66,7 @@ public class DropdownController(IPluginService pluginService, IWorkflowDefinitio
     }
 
     [HttpGet("plugin-category")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> GetPluginCategories(CancellationToken ct)
     {
         var result = await _pluginService.ListPluginCategoriesAsync(ct);

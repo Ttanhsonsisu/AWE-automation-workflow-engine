@@ -1,10 +1,13 @@
 ﻿using AWE.Application.UseCases.Monitor.Daskboard;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/dashboard")]
+[Authorize(Policy = AppPolicies.RequireOperator)]
 public class DashboardController : ApiController
 {
     /// <summary>
