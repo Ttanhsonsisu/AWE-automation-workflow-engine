@@ -39,7 +39,14 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
     private readonly ILogger<WorkflowOrchestrator> _logger = logger;
 
-    public async Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId, bool isTest = false, string? stopAtStepId = null)
+    public async Task<Result<Guid>> StartWorkflowAsync(
+        Guid definitionId,
+        string jobName,
+        string inputData,
+        Guid? correlationId,
+        bool isTest = false,
+        string? stopAtStepId = null,
+        string? idempotencyKey = null)
     {
         var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
         if (def == null) return Result.Failure<Guid>(Error.NotFound("Definition.NotFound", ""));
@@ -61,7 +68,12 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         if (contextResult.IsFailure) return Result.Failure<Guid>(contextResult.Error);
 
         // 2. Khởi tạo Instance
-        var instance = new WorkflowInstance(def.Id, def.Version, contextResult.Value, isTestInstance: isTest);
+        var instance = new WorkflowInstance(
+            def.Id,
+            def.Version,
+            contextResult.Value,
+            isTestInstance: isTest,
+            idempotencyKey: idempotencyKey);
         // instance.MarkAsRunning(); // Bạn nhớ thêm hàm này vào WorkflowInstance nhé
         await _instanceRepo.AddInstanceAsync(instance);
 

@@ -21,7 +21,8 @@ public record SubmitWorkflowCommand(
     string InputData, // Input payload (JSON)
     Guid? CorrelationId, // Correlation identifier for end-to-end tracing,
     bool IsTest = false, // Whether this is a test run (affects logging and monitoring)
-    string? StopAtStepId = null // Optional: StepId to stop at for testing/debugging (VD: "Step_3_DoSomething")
+    string? StopAtStepId = null, // Optional: StepId to stop at for testing/debugging (VD: "Step_3_DoSomething")
+    string? IdempotencyKey = null // Optional: key để chống tạo trùng workflow instance (đặc biệt cho webhook)
 );
 
 public record SubmitWorkflowResponse(

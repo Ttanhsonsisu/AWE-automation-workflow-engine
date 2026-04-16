@@ -42,6 +42,10 @@ public class WorkflowInstanceConfiguration : IEntityTypeConfiguration<WorkflowIn
 
         builder.Property(x => x.LastUpdated);
 
+        builder.Property(x => x.IdempotencyKey)
+            .HasMaxLength(255)
+            .IsRequired(false);
+
         // Indexes
         builder.HasIndex(x => x.DefinitionId)
             .HasDatabaseName("ix_workflow_instances_definition_id");
@@ -75,5 +79,11 @@ public class WorkflowInstanceConfiguration : IEntityTypeConfiguration<WorkflowIn
             .WithOne(x => x.Instance)
             .HasForeignKey(x => x.InstanceId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Tạo Unique Index chống Race-Condition khi có 2 request tới cùng lúc
+        // Filter "[IdempotencyKey] IS NOT NULL" để các luồng chạy Manual (không có key) không bị lỗi trùng lặp NULL
+        builder.HasIndex(x => new { x.DefinitionId, x.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("\"idempotency_key\" IS NOT NULL");
     }
 }

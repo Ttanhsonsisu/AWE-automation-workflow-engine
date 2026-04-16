@@ -22,7 +22,8 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
         using var scope = _logger.BeginScope(new Dictionary<string, object>
         {
             ["TraceId"] = cmd.CorrelationId ?? context.CorrelationId ?? Guid.NewGuid(),
-            ["JobName"] = cmd.JobName
+            ["JobName"] = cmd.JobName,
+            ["IdempotencyKey"] = cmd.IdempotencyKey ?? string.Empty
         });
 
         // Gọi Orchestrator Core
@@ -32,7 +33,8 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
             cmd.InputData,
             cmd.CorrelationId,
             isTest: cmd.IsTest,
-            stopAtStepId: cmd.StopAtStepId
+            stopAtStepId: cmd.StopAtStepId,
+            idempotencyKey: cmd.IdempotencyKey
         );
 
         if (result.IsSuccess)
