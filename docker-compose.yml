@@ -36,11 +36,39 @@ services:
       environment:
         POSTGRES_USER: ${POSTGRES_USER}
         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-        POSTGRES_DB: awe_db
+        # POSTGRES_DB: awe_db
       volumes:
         - postgres-data:/var/lib/postgresql/data
+        - ./init-dbs.sh:/docker-entrypoint-initdb.d/init-dbs.sh:ro
       networks:
         - awe-network
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d awe_db"]
+        interval: 5s
+        timeout: 5s
+        retries: 10
+
+  # ----------------------------------------
+  # 3. KEYCLOAK (Identity & SSO)
+  # ----------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: awe-keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080" 
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - awe-network
 
   # REDIS
   redis:

@@ -11,6 +11,7 @@
     <File Path=".gitattributes" />
     <File Path=".gitignore" />
     <File Path="docker-compose.yml" />
+    <File Path="init-dbs.sh" />
     <File Path="LICENSE" />
     <File Path="README.md" />
   </Folder>
@@ -21,8 +22,8 @@
     <Project Path="src/Presentation/AWE.ApiGateway/AWE.ApiGateway.csproj" />
   </Folder>
   <Folder Name="/src/Workers/">
-    <Project Path="src/Workers/AWE.Worker/AWE.Worker.csproj" />
     <Project Path="src/Workers/AWE.Wokrer.Engine/AWE.Wokrer.Engine.csproj" />
+    <Project Path="src/Workers/AWE.Worker/AWE.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="test/plugin-test-upload/plugin-test-upload.csproj" Id="745e4600-4c86-47b9-a0b8-a59a48bad5b2" />

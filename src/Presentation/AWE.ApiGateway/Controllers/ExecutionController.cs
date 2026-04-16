@@ -6,11 +6,14 @@ using AWE.Application.UseCases.Executions.ResumeExecution;
 using AWE.Application.UseCases.Executions.RetryExecution;
 using AWE.Application.UseCases.Executions.SuspendExecution;
 using AWE.Domain.Enums;
+using AWE.Shared.Consts;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/executions")]
+[Authorize(Policy = AppPolicies.RequireOperator)]
 public class ExecutionController : ApiController
 {
     [HttpGet]

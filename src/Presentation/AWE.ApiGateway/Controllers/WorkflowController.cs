@@ -10,13 +10,16 @@ using AWE.Application.UseCases.Workflows.ScheduleDefinition;
 using AWE.Application.UseCases.Workflows.UpdateDefinition;
 using AWE.Contracts.Messages;
 using AWE.Domain.Enums;
+using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using MassTransit;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AWE.ApiGateway.Controllers;
 
 [Route("api/workflows")]
+[Authorize]
 public class WorkflowController : ApiController
 {
     private readonly IRequestClient<SubmitWorkflowCommand> _submitWorkflowClient;
@@ -29,6 +32,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpGet("{id:guid}")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
     public async Task<IActionResult> GetDefinitions([FromRoute] Guid id, CancellationToken ct)
     {
         var result = await _workflowService.GetWorkflowDetailsAsync(id, ct);
@@ -36,6 +40,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpGet("{instanceId}/context")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
     public async Task<IActionResult> GetInstanceDataContext(Guid instanceId,
         [FromServices] IWorkflowInstanceRepository instanceRepo,
         CancellationToken ct)
@@ -50,6 +55,7 @@ public class WorkflowController : ApiController
         return HandleResult(Result.Success(instance.ContextData?.RootElement.Clone()));
     }
     [HttpGet("{instanceId:guid}/steps/{stepId}")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
     public async Task<IActionResult> GetStepDetails(
         Guid instanceId,
         string stepId,
@@ -108,6 +114,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpGet("definitions")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
     public async Task<IActionResult> GetDefinitions(
         [FromQuery] int pageSize = 30,
         [FromQuery] int pageNo = 1,
@@ -125,6 +132,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpPost]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
     public async Task<IActionResult> SubmitWorkflow([FromBody] SubmitRequest request)
     {
         var correlationId = Guid.NewGuid();
@@ -160,6 +168,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpPost("definitions")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> CreateDefinition([FromBody] CreateDefinitionRequest request, [FromServices] ICreateDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
         var result = await useCase.ExecuteAsync(request, cancellationToken);
@@ -167,6 +176,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpPut("definitions")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> UpdateDefinition([FromBody] UpdateDefinitionRequest request, [FromServices] IUpdateDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
         var result = await useCase.ExecuteAsync(request, cancellationToken);
@@ -174,6 +184,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpDelete("definitions/{id:guid}")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> DeleteDefinition(Guid id, [FromServices] IDeleteDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
         var request = new DeleteDefinitionRequest { Id = id };
@@ -182,6 +193,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpPost("definitions/{id:guid}/clone")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> CloneDefinition(Guid id, [FromBody] CloneDefinitionRequest request, [FromServices] ICloneDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
         if (id != request.SourceDefinitionId)
@@ -193,6 +205,7 @@ public class WorkflowController : ApiController
     }
 
     [HttpGet("definitions/{id:guid}/export")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> ExportDefinition(Guid id, [FromServices] IExportDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
         var request = new ExportDefinitionRequest { Id = id };
@@ -201,16 +214,121 @@ public class WorkflowController : ApiController
     }
 
     [HttpPost("definitions/import")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> ImportDefinition([FromBody] ImportDefinitionRequest request, [FromServices] IImportDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
         var result = await useCase.ExecuteAsync(request, cancellationToken);
         return HandleResult(result);
     }
 
+    [HttpGet("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
+    public async Task<IActionResult> GetDefinitionInputData(
+        Guid id,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        CancellationToken ct)
+    {
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure<JsonElement?>(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        return HandleResult(Result.Success(definition.InputData?.RootElement.Clone()));
+    }
+
+    [HttpPost("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> CreateDefinitionInputData(
+        Guid id,
+        [FromBody] WorkflowDefinitionInputDataRequest request,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        [FromServices] IUnitOfWork unitOfWork,
+        CancellationToken ct)
+    {
+        if (request.InputData.ValueKind == JsonValueKind.Undefined)
+        {
+            return HandleResult(Result.Failure(
+                Error.Validation("Workflow.Definition.InputData.Invalid", "InputData không hợp lệ.")));
+        }
+
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        if (definition.InputData is not null)
+        {
+            return HandleResult(Result.Failure(
+                Error.Conflict("Workflow.Definition.InputData.AlreadyExists", "InputData đã tồn tại, hãy dùng PUT để cập nhật.")));
+        }
+
+        definition.InputData = JsonDocument.Parse(request.InputData.GetRawText());
+        await definitionRepository.UpdateDefinitionAsync(definition, ct);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return HandleResult(Result.Success(definition.InputData.RootElement.Clone()));
+    }
+
+    [HttpPut("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> UpdateDefinitionInputData(
+        Guid id,
+        [FromBody] WorkflowDefinitionInputDataRequest request,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        [FromServices] IUnitOfWork unitOfWork,
+        CancellationToken ct)
+    {
+        if (request.InputData.ValueKind == JsonValueKind.Undefined)
+        {
+            return HandleResult(Result.Failure(
+                Error.Validation("Workflow.Definition.InputData.Invalid", "InputData không hợp lệ.")));
+        }
+
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        definition.InputData = JsonDocument.Parse(request.InputData.GetRawText());
+        await definitionRepository.UpdateDefinitionAsync(definition, ct);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return HandleResult(Result.Success(definition.InputData.RootElement.Clone()));
+    }
+
+    [HttpDelete("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> DeleteDefinitionInputData(
+        Guid id,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        [FromServices] IUnitOfWork unitOfWork,
+        CancellationToken ct)
+    {
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        definition.InputData = null;
+        await definitionRepository.UpdateDefinitionAsync(definition, ct);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return HandleResult(Result.Success());
+    }
+
     /// <summary>
     /// Thêm lịch chạy (Cron) cho Workflow
     /// </summary>
     [HttpPost("{definitionId}/schedules")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> CreateSchedule(Guid definitionId, [FromBody] CreateScheduleRequest request, [FromServices] ICreateScheduleUseCase useCase , CancellationToken cancellationToken)
     {
         var command = new CreateScheduleCommand(definitionId, request.CronExpression);
@@ -276,3 +394,5 @@ public record WorkflowStepDetailResponse(
     string? ErrorMessage,
     DateTime? StartTime,
     DateTime? EndTime);
+
+public record WorkflowDefinitionInputDataRequest(JsonElement InputData);
