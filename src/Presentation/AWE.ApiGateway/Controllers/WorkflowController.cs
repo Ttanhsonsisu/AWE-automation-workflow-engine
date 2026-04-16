@@ -221,6 +221,109 @@ public class WorkflowController : ApiController
         return HandleResult(result);
     }
 
+    [HttpGet("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireOperator)]
+    public async Task<IActionResult> GetDefinitionInputData(
+        Guid id,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        CancellationToken ct)
+    {
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure<JsonElement?>(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        return HandleResult(Result.Success(definition.InputData?.RootElement.Clone()));
+    }
+
+    [HttpPost("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> CreateDefinitionInputData(
+        Guid id,
+        [FromBody] WorkflowDefinitionInputDataRequest request,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        [FromServices] IUnitOfWork unitOfWork,
+        CancellationToken ct)
+    {
+        if (request.InputData.ValueKind == JsonValueKind.Undefined)
+        {
+            return HandleResult(Result.Failure(
+                Error.Validation("Workflow.Definition.InputData.Invalid", "InputData không hợp lệ.")));
+        }
+
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        if (definition.InputData is not null)
+        {
+            return HandleResult(Result.Failure(
+                Error.Conflict("Workflow.Definition.InputData.AlreadyExists", "InputData đã tồn tại, hãy dùng PUT để cập nhật.")));
+        }
+
+        definition.InputData = JsonDocument.Parse(request.InputData.GetRawText());
+        await definitionRepository.UpdateDefinitionAsync(definition, ct);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return HandleResult(Result.Success(definition.InputData.RootElement.Clone()));
+    }
+
+    [HttpPut("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> UpdateDefinitionInputData(
+        Guid id,
+        [FromBody] WorkflowDefinitionInputDataRequest request,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        [FromServices] IUnitOfWork unitOfWork,
+        CancellationToken ct)
+    {
+        if (request.InputData.ValueKind == JsonValueKind.Undefined)
+        {
+            return HandleResult(Result.Failure(
+                Error.Validation("Workflow.Definition.InputData.Invalid", "InputData không hợp lệ.")));
+        }
+
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        definition.InputData = JsonDocument.Parse(request.InputData.GetRawText());
+        await definitionRepository.UpdateDefinitionAsync(definition, ct);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return HandleResult(Result.Success(definition.InputData.RootElement.Clone()));
+    }
+
+    [HttpDelete("definitions/{id:guid}/input-data")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> DeleteDefinitionInputData(
+        Guid id,
+        [FromServices] IWorkflowDefinitionRepository definitionRepository,
+        [FromServices] IUnitOfWork unitOfWork,
+        CancellationToken ct)
+    {
+        var definition = await definitionRepository.GetDefinitionByIdAsync(id, ct);
+        if (definition is null)
+        {
+            return HandleResult(Result.Failure(
+                Error.NotFound("Workflow.Definition.NotFound", $"Không tìm thấy workflow definition '{id}'.")));
+        }
+
+        definition.InputData = null;
+        await definitionRepository.UpdateDefinitionAsync(definition, ct);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return HandleResult(Result.Success());
+    }
+
     /// <summary>
     /// Thêm lịch chạy (Cron) cho Workflow
     /// </summary>
@@ -291,3 +394,5 @@ public record WorkflowStepDetailResponse(
     string? ErrorMessage,
     DateTime? StartTime,
     DateTime? EndTime);
+
+public record WorkflowDefinitionInputDataRequest(JsonElement InputData);

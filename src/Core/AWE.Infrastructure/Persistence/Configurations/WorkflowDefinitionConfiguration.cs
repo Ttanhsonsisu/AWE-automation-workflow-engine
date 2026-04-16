@@ -27,6 +27,9 @@ public class WorkflowDefinitionConfiguration : IEntityTypeConfiguration<Workflow
             .HasColumnType("jsonb")
             .IsRequired();
 
+        builder.Property(x => x.InputData)
+            .HasColumnType("jsonb");
+
         builder.Property(x => x.IsPublished)
             .IsRequired();
 

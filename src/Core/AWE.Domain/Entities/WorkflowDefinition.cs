@@ -25,6 +25,8 @@ public class WorkflowDefinition : AuditableEntity
     /// </summary>
     public JsonDocument DefinitionJson { get; private set; } = null!;
 
+    public JsonDocument? InputData { get; set; } = null!;
+
     /// <summary>
     /// Whether this version is published and can be instantiated
     /// </summary>
