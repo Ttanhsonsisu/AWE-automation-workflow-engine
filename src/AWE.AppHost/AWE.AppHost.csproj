@@ -1,6 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <Sdk Name="Aspire.AppHost.Sdk" Version="9.5.0" />
+<Project Sdk="Aspire.AppHost.Sdk/13.2.2">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -9,10 +7,6 @@
     <Nullable>enable</Nullable>
     <UserSecretsId>e57c7499-cf67-4b74-b107-ad5fd8a76ca9</UserSecretsId>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.AppHost" Version="9.5.0" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Presentation\AWE.ApiGateway\AWE.ApiGateway.csproj" />
