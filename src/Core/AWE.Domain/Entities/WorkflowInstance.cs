@@ -49,6 +49,12 @@ public class WorkflowInstance : AuditableEntity
     public Guid? ParentPointerId { get; private set; }
 
     public bool IsTest { get; private set; } = true;
+
+    /// <summary>
+    /// Khóa chống trùng lặp (Idempotency Key) do Webhook bên thứ 3 gửi tới
+    /// </summary>
+    public string? IdempotencyKey { get; private set; }
+
     /// <summary>
     /// Navigation properties
     /// </summary>
@@ -66,7 +72,8 @@ public class WorkflowInstance : AuditableEntity
         JsonDocument? initialContext = null,
         Guid? parentInstanceId = null,
         Guid? parentPointerId = null,
-        bool isTestInstance = false)
+        bool isTestInstance = false,
+        string? idempotencyKey = null)
         : base()
     {
         DefinitionId = definitionId;
@@ -77,6 +84,7 @@ public class WorkflowInstance : AuditableEntity
         ParentInstanceId = parentInstanceId;
         ParentPointerId = parentPointerId;
         IsTest = isTestInstance;
+        IdempotencyKey = idempotencyKey;
     }
 
     /// <summary>

@@ -134,7 +134,8 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
         // Dùng HashSet + StringComparer.OrdinalIgnoreCase để check siêu nhanh và không phân biệt hoa thường
         var allowedTriggerTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "ManualTrigger"
+            "ManualTrigger",
+            "WebhookTrigger"
             //"WebhookReceiver",
             //"ScheduleTimer" 
         };

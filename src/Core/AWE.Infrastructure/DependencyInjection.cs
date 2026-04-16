@@ -86,6 +86,7 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowScheduleRepository, WorkflowScheduleRepository>();
         services.AddScoped<ISystemAuditLogRepository, SystemAuditLogRepository>();
         services.AddScoped<IApprovalTokenRepository, ApprovalTokenRepository>();
+        services.AddScoped<IWebhookRouteRepository, WebhookRouteRepository>();
 
         // Service
         services.AddAweObjectStorage(configuration);

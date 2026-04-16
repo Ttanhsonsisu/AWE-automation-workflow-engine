@@ -13,7 +13,9 @@ using AWE.Application.UseCases.Workflows.CreateDefinition;
 using AWE.Application.UseCases.Workflows.DeleteDefinition;
 using AWE.Application.UseCases.Workflows.ExportDefinition;
 using AWE.Application.UseCases.Workflows.ImportDefinition;
+using AWE.Application.UseCases.Workflows.PublishDefinition;
 using AWE.Application.UseCases.Workflows.ScheduleDefinition;
+using AWE.Application.UseCases.Workflows.UnpublishDefinition;
 using AWE.Application.UseCases.Workflows.UpdateDefinition;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,6 +30,8 @@ public static class DependencyInjection
         services.AddScoped<ICloneDefinitionUseCase, CloneDefinitionUseCase>();
         services.AddScoped<IDeleteDefinitionUseCase, DeleteDefinitionUseCase>();
         services.AddScoped<IUpdateDefinitionUseCase, UpdateDefinitionUseCase>();
+        services.AddScoped<IPublishDefinitionUseCase, PublishDefinitionUseCase>();
+        services.AddScoped<IUnpublishDefinitionUseCase, UnpublishDefinitionUseCase>();
         services.AddScoped<IExportDefinitionUseCase, ExportDefinitionUseCase>();
         services.AddScoped<IImportDefinitionUseCase, ImportDefinitionUseCase>();
         services.AddScoped<ICreateScheduleUseCase, CreateScheduleUseCase>();

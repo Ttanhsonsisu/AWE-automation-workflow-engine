@@ -30,6 +30,8 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ApprovalToken> ApprovalTokens => Set<ApprovalToken>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
 
+    public DbSet<WebhookRoute> WebhookRoutes => Set<WebhookRoute>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

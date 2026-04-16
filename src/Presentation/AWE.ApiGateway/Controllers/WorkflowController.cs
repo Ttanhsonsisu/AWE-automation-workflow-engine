@@ -6,7 +6,9 @@ using AWE.Application.UseCases.Workflows.CreateDefinition;
 using AWE.Application.UseCases.Workflows.DeleteDefinition;
 using AWE.Application.UseCases.Workflows.ExportDefinition;
 using AWE.Application.UseCases.Workflows.ImportDefinition;
+using AWE.Application.UseCases.Workflows.PublishDefinition;
 using AWE.Application.UseCases.Workflows.ScheduleDefinition;
+using AWE.Application.UseCases.Workflows.UnpublishDefinition;
 using AWE.Application.UseCases.Workflows.UpdateDefinition;
 using AWE.Contracts.Messages;
 using AWE.Domain.Enums;
@@ -171,6 +173,30 @@ public class WorkflowController : ApiController
     [Authorize(Policy = AppPolicies.RequireEditor)]
     public async Task<IActionResult> CreateDefinition([FromBody] CreateDefinitionRequest request, [FromServices] ICreateDefinitionUseCase useCase, CancellationToken cancellationToken)
     {
+        var result = await useCase.ExecuteAsync(request, cancellationToken);
+        return HandleResult(result);
+    }
+
+    [HttpPost("definitions/{id:guid}/unpublish")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> UnpublishDefinition(
+        Guid id,
+        [FromServices] IUnpublishDefinitionUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        var request = new UnpublishDefinitionRequest { Id = id };
+        var result = await useCase.ExecuteAsync(request, cancellationToken);
+        return HandleResult(result);
+    }
+
+    [HttpPost("definitions/{id:guid}/publish")]
+    [Authorize(Policy = AppPolicies.RequireEditor)]
+    public async Task<IActionResult> PublishDefinition(
+        Guid id,
+        [FromServices] IPublishDefinitionUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        var request = new PublishDefinitionRequest { Id = id };
         var result = await useCase.ExecuteAsync(request, cancellationToken);
         return HandleResult(result);
     }

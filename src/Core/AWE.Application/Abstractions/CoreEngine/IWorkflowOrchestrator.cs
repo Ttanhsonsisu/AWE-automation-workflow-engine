@@ -5,7 +5,14 @@ namespace AWE.Application.Abstractions.CoreEngine;
 
 public interface IWorkflowOrchestrator
 {
-    Task<Result<Guid>> StartWorkflowAsync(Guid definitionId, string jobName, string inputData, Guid? correlationId, bool isTest = false, string? stopAtStepId = null);
+    Task<Result<Guid>> StartWorkflowAsync(
+        Guid definitionId,
+        string jobName,
+        string inputData,
+        Guid? correlationId,
+        bool isTest = false,
+        string? stopAtStepId = null,
+        string? idempotencyKey = null);
 
     Task<Result> HandleStepCompletionAsync(Guid instanceId, Guid executionPointerId, JsonDocument? output);
     Task<Result> HandleStepFailureAsync(Guid instanceId, Guid executionPointerId, string error);

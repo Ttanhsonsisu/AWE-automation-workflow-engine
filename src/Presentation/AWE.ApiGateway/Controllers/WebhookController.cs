@@ -1,6 +1,8 @@
-﻿using System.Text.Json;
+﻿using System.Security.Cryptography;
+using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Contracts.Messages;
+using AWE.Domain.Entities;
 using AWE.Domain.Enums;
 using AWE.Infrastructure.Persistence;
 using AWE.Shared.Consts;
@@ -14,11 +16,14 @@ namespace AWE.ApiGateway.Controllers;
 [Route("api/webhooks")]
 public class WebhookController : ControllerBase
 {
+    private const string SignatureHeaderName = "X-Signature";
+
     private readonly IExecutionPointerRepository _pointerRepo;
     private readonly IWorkflowInstanceRepository _instanceRepo;
     private readonly IUnitOfWork _uow;
     private readonly IPublishEndpoint _publishEndpoint;
-    private readonly ApplicationDbContext dbcontext;
+    private readonly ApplicationDbContext _dbContext;
+
     public WebhookController(
         IExecutionPointerRepository pointerRepo,
         IWorkflowInstanceRepository instanceRepo,
@@ -30,7 +35,7 @@ public class WebhookController : ControllerBase
         _instanceRepo = instanceRepo;
         _uow = uow;
         _publishEndpoint = publishEndpoint;
-        dbcontext = context;
+        _dbContext = context;
     }
 
     /// <summary>
@@ -83,11 +88,6 @@ public class WebhookController : ControllerBase
     [HttpPost("trigger/{definitionId}")]
     public async Task<IActionResult> TriggerWorkflow(Guid definitionId, [FromBody] JsonElement payload)
     {
-        // 1. Kiểm tra Definition có tồn tại không (Tuỳ chọn, để bảo mật tốt hơn)
-        // var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
-        // if (def == null) return NotFound("Workflow Definition not found");
-
-        // 2. Tạo Command gửi cho Engine
         var correlationId = Guid.NewGuid();
         var jobName = $"Webhook-Triggered-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
 
@@ -98,21 +98,156 @@ public class WebhookController : ControllerBase
             CorrelationId: correlationId
         );
 
-        // 3. Publish Command vào Message Broker
-        // (Worker.Engine có JobExecutionConsumer đang lắng nghe cái này)
         await _publishEndpoint.Publish(command);
+        await _dbContext.SaveChangesAsync();
 
-        await dbcontext.SaveChangesAsync();
-
-        // LƯU Ý: Nếu Controller này có gọi DB thay đổi gì thì mới cần await _uow.SaveChangesAsync();
-        // Ở đây ta chỉ đẩy message thẳng vào Queue (nếu MassTransit cấu hình Outbox cho toàn Bus thì message vẫn an toàn)
-
-        // 4. Trả về 202 Accepted (Đã tiếp nhận yêu cầu)
         return Accepted(new
         {
             message = "🎯 Webhook received. Workflow is starting...",
-            correlationId = correlationId,
-            definitionId = definitionId
+            correlationId,
+            definitionId
         });
+    }
+
+    /// <summary>
+    /// API để hệ thống bên ngoài (Github, Stripe...) gọi vào để Start Workflow theo route động
+    /// </summary>
+    [HttpPost("catch/{routePath}")]
+    public async Task<IActionResult> CatchWebhook(string routePath, [FromBody] JsonElement payload)
+    {
+        var route = await _dbContext.WebhookRoutes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.RoutePath == routePath && x.IsActive);
+
+        if (route is null)
+        {
+            return NotFound(new { error = "Webhook route not found or inactive." });
+        }
+
+        if (!VerifySignature(route.SecretToken))
+        {
+            return Unauthorized(new { error = "Invalid webhook signature." });
+        }
+
+        var idempotencyKey = ExtractIdempotencyKey(route.IdempotencyKeyPath, payload);
+        if (!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            var exists = await _dbContext.WorkflowInstances
+                .AsNoTracking()
+                .AnyAsync(x => x.DefinitionId == route.WorkflowDefinitionId && x.IdempotencyKey == idempotencyKey);
+
+            if (exists)
+            {
+                return Ok(new
+                {
+                    message = "Duplicate webhook ignored.",
+                    routePath,
+                    idempotencyKey
+                });
+            }
+        }
+
+        var correlationId = Guid.NewGuid();
+        var jobName = $"Webhook-Triggered-{DateTime.UtcNow:yyyyMMdd-HHmmss}";
+
+        var command = new SubmitWorkflowCommand(
+            DefinitionId: route.WorkflowDefinitionId,
+            JobName: jobName,
+            InputData: payload.GetRawText(),
+            CorrelationId: correlationId,
+            IdempotencyKey: idempotencyKey
+        );
+
+        await _publishEndpoint.Publish(command);
+
+        await _dbContext.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = "Webhook received.",
+            routePath,
+            correlationId = correlationId,
+            definitionId = route.WorkflowDefinitionId,
+            idempotencyKey
+        });
+    }
+
+    private bool VerifySignature(string? secretToken)
+    {
+        if (string.IsNullOrWhiteSpace(secretToken))
+        {
+            return true;
+        }
+
+        if (!Request.Headers.TryGetValue(SignatureHeaderName, out var providedSignature))
+        {
+            return false;
+        }
+
+        // chống timing attack bằng cách so sánh hmac trong thời gian cố định
+        var tokenBytes = System.Text.Encoding.UTF8.GetBytes(secretToken);
+        var signatureBytes = System.Text.Encoding.UTF8.GetBytes(providedSignature.ToString());
+
+        return CryptographicOperations.FixedTimeEquals(tokenBytes, signatureBytes);
+    }
+
+    private string? ExtractIdempotencyKey(string? idempotencyKeyPath, JsonElement payload)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKeyPath))
+        {
+            return null;
+        }
+
+        var normalizedPath = idempotencyKeyPath.Trim();
+        if (normalizedPath.StartsWith("$.", StringComparison.Ordinal))
+        {
+            normalizedPath = normalizedPath[2..];
+        }
+
+        if (normalizedPath.StartsWith("header.", StringComparison.OrdinalIgnoreCase))
+        {
+            var headerName = normalizedPath["header.".Length..];
+            if (Request.Headers.TryGetValue(headerName, out var headerValue))
+            {
+                return string.IsNullOrWhiteSpace(headerValue) ? null : headerValue.ToString();
+            }
+
+            return null;
+        }
+
+        if (normalizedPath.StartsWith("body.", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedPath = normalizedPath["body.".Length..];
+        }
+
+        if (TryGetJsonValueByPath(payload, normalizedPath, out var element))
+        {
+            return element.ValueKind == JsonValueKind.String
+                ? element.GetString()
+                : element.GetRawText();
+        }
+
+        return null;
+    }
+
+    private static bool TryGetJsonValueByPath(JsonElement payload, string path, out JsonElement element)
+    {
+        element = payload;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var segments = path.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var segment in segments)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(segment, out element))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
