@@ -3,9 +3,11 @@ using AWE.Sdk.v2;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
 
-public class ManualTriggerPlugin : IWorkflowPlugin
+public class ManualTriggerPlugin : ITriggerPlugin
 {
     public string Name => "ManualTrigger";
+    public string TriggerSource => "Manual";
+    public bool IsSingleton => false;
 
     public string DisplayName => "Kích Hoạt Bằng Tay";
     public string Description => "Điểm khởi đầu cho các luồng chạy thủ công. Nhận dữ liệu truyền vào lúc khởi tạo và chuyển nó cho các bước tiếp theo.";

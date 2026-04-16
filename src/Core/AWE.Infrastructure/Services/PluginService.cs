@@ -248,7 +248,9 @@ public class PluginService(
             Icon: p.Icon,
             ExecutionMode: PluginExecutionMode.BuiltIn.ToString(),
             InputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(p.InputType)),
-        OutputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(p.OutputType))
+            OutputSchema: ParseSchema(PluginSchemaGenerator.GenerateSchema(p.OutputType)),
+            TriggerSource: (p as AWE.Sdk.v2.ITriggerPlugin)?.TriggerSource,
+            IsSingleton: (p as AWE.Sdk.v2.ITriggerPlugin)?.IsSingleton ?? false
         ));
 
         catalog.AddRange(builtInItems);
@@ -273,7 +275,9 @@ public class PluginService(
                 Icon: pkg.Icon ?? "lucide-box",
                 ExecutionMode: pkg.ExecutionMode.ToString(),
                 InputSchema: latestActiveVersion.ConfigSchema?.RootElement ?? ParseSchema("{}"),
-                OutputSchema: ParseSchema("{}")
+                OutputSchema: ParseSchema("{}"),
+                TriggerSource: null,
+                IsSingleton: false
             ));
         }
 

@@ -15,6 +15,18 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
+    public async Task<WorkflowInstance?> GetByDefinitionAndIdempotencyKeyAsync(
+        Guid definitionId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.WorkflowInstances
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.DefinitionId == definitionId && x.IdempotencyKey == idempotencyKey,
+                cancellationToken);
+    }
+
     public async Task<WorkflowInstanceStatus?> GetInstanceStatusAsync(
         Guid id,
         CancellationToken cancellationToken = default)

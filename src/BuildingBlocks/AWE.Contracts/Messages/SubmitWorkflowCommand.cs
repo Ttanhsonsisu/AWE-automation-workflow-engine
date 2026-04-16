@@ -22,7 +22,9 @@ public record SubmitWorkflowCommand(
     Guid? CorrelationId, // Correlation identifier for end-to-end tracing,
     bool IsTest = false, // Whether this is a test run (affects logging and monitoring)
     string? StopAtStepId = null, // Optional: StepId to stop at for testing/debugging (VD: "Step_3_DoSomething")
-    string? IdempotencyKey = null // Optional: key để chống tạo trùng workflow instance (đặc biệt cho webhook)
+    string? IdempotencyKey = null, // Optional: key để chống tạo trùng workflow instance (đặc biệt cho webhook)
+    WorkflowTriggerSource TriggerSource = WorkflowTriggerSource.Manual,
+    string? TriggerRoutePath = null
 );
 
 public record SubmitWorkflowResponse(

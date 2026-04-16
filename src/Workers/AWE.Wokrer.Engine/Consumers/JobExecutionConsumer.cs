@@ -23,7 +23,9 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
         {
             ["TraceId"] = cmd.CorrelationId ?? context.CorrelationId ?? Guid.NewGuid(),
             ["JobName"] = cmd.JobName,
-            ["IdempotencyKey"] = cmd.IdempotencyKey ?? string.Empty
+            ["IdempotencyKey"] = cmd.IdempotencyKey ?? string.Empty,
+            ["TriggerSource"] = cmd.TriggerSource.ToString(),
+            ["TriggerRoutePath"] = cmd.TriggerRoutePath ?? string.Empty
         });
 
         // Gọi Orchestrator Core
@@ -34,7 +36,9 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
             cmd.CorrelationId,
             isTest: cmd.IsTest,
             stopAtStepId: cmd.StopAtStepId,
-            idempotencyKey: cmd.IdempotencyKey
+            idempotencyKey: cmd.IdempotencyKey,
+            triggerSource: cmd.TriggerSource,
+            triggerRoutePath: cmd.TriggerRoutePath
         );
 
         if (result.IsSuccess)

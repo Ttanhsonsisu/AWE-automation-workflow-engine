@@ -152,7 +152,8 @@ public class WorkflowController : ApiController
             InputData: inputData,
             CorrelationId: correlationId,
             IsTest: request.IsTest,
-            StopAtStepId: request.StopAtStepId);
+            StopAtStepId: request.StopAtStepId,
+            TriggerSource: WorkflowTriggerSource.Manual);
 
         var response = await _submitWorkflowClient.GetResponse<SubmitWorkflowResponse>(command);
 
