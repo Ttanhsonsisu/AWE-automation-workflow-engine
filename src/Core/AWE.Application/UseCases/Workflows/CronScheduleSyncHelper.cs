@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using Quartz;
+using TimeZoneConverter;
 
 namespace AWE.Application.UseCases.Workflows;
 
@@ -123,7 +124,7 @@ internal static class CronScheduleSyncHelper
 
         try
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            return TZConvert.GetTimeZoneInfo(timeZoneId);
         }
         catch
         {
