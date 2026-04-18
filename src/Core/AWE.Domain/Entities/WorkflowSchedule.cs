@@ -14,6 +14,9 @@ public class WorkflowSchedule
     [MaxLength(50)]
     public string CronExpression { get; set; } = null!; // VD: "0 * * * *" (Mỗi giờ)
 
+    [MaxLength(100)]
+    public string? TimeZoneId { get; set; }
+
     public DateTime? LastRunAt { get; set; }
 
     // ĐÂY LÀ CỘT QUAN TRỌNG NHẤT: Lưu sẵn thời điểm sẽ chạy ở tương lai

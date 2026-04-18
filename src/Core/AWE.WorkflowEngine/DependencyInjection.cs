@@ -2,6 +2,7 @@
 using AWE.Sdk.v2;
 using AWE.WorkflowEngine.BackgroundServices;
 using AWE.WorkflowEngine.BuiltInPlugins;
+using AWE.WorkflowEngine.Jobs;
 using AWE.WorkflowEngine.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,12 +20,12 @@ public static class DependencyInjection
         services.AddScoped<IWorkflowContextManager, WorkflowContextManager>();
         services.AddScoped<IJoinBarrierService, JoinBarrierService>();
         services.AddScoped<IWorkflowOrchestrator, WorkflowOrchestrator>();
+        services.AddTransient<WorkflowCronJob>();
 
         // add backgroundservice
         services.AddHostedService<RecoveryBackgroundService>();
         services.AddHostedService<PluginGarbageCollectorService>();
         //services.AddHostedService<DelayWakeUpBackgroundService>();
-        services.AddHostedService<CronSchedulePublisherService>();
 
         // add built-in plugins
         services.AddScoped<IPluginRegistry, PluginRegistry>();

@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Cronos" Version="0.11.1" />
     <PackageReference Include="NJsonSchema" Version="11.5.2" />
+    <PackageReference Include="Quartz" Version="3.16.1" />
+    <PackageReference Include="TimeZoneConverter" Version="7.2.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,6 +18,10 @@
     <ProjectReference Include="..\..\BuildingBlocks\AWE.Shared\AWE.Shared.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\AWE.Contracts\AWE.Contracts.csproj" />
     <ProjectReference Include="..\AWE.Sdk\AWE.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="UseCases\Workflows\ScheduleDefinition\" />
   </ItemGroup>
 
 </Project>

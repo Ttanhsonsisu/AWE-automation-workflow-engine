@@ -26,6 +26,9 @@ public class WorkflowScheduleConfiguration : IEntityTypeConfiguration<WorkflowSc
             .HasMaxLength(50)
             .IsRequired();
 
+        builder.Property(x => x.TimeZoneId)
+            .HasMaxLength(100);
+
         builder.Property(x => x.LastRunAt);
 
         builder.Property(x => x.NextRunAt);
