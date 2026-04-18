@@ -30,6 +30,24 @@ public class DropdownController(IPluginService pluginService, IWorkflowDefinitio
         return HandleResult(Result.Success(result));
     }
 
+    [HttpGet("timezones")]
+    [AllowAnonymous]
+    public IActionResult GetTimeZones()
+    {
+        // Sử dụng chuẩn IANA Timezone (nếu bạn có cài thư viện TimeZoneConverter)
+        // hoặc dùng System TimeZones của .NET
+        var timezones = TimeZoneInfo.GetSystemTimeZones()
+            .Select(tz => new
+            {
+                Value = tz.Id,
+                Label = tz.DisplayName
+            })
+            .ToList();
+
+        return Ok(timezones);
+    }
+
+
     [HttpGet("version/package")]
     [Authorize(Policy = AppPolicies.RequireEditor)]
 

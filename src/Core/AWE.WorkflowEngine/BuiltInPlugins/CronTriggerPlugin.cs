@@ -1,12 +1,18 @@
 ﻿using System.Text.Json;
 using AWE.Sdk.v2;
+using AWE.Sdk.v2.Attributes;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
 
 public class CronTriggerInput
 {
     public string CronExpression { get; set; } = "* * * * *";
-    public string? TimeZone { get; set; }
+
+    [UiField(
+        Widget = "select",
+        Label = "Múi giờ",
+        DataSourceUrl = "/dropdown/timezones" // Bắt FE phải gọi API này
+    )]
     public string? TimeZoneId { get; set; }
 }
 
