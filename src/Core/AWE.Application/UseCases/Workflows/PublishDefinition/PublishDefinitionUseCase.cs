@@ -3,6 +3,7 @@ using AWE.Application.UseCases.Workflows;
 using AWE.Shared.Primitives;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Quartz;
 
 namespace AWE.Application.UseCases.Workflows.PublishDefinition;
 
@@ -23,15 +24,18 @@ public class PublishDefinitionUseCase : IPublishDefinitionUseCase
 
     private readonly IWorkflowDefinitionRepository _definitionRepository;
     private readonly IWebhookRouteRepository _webhookRouteRepository;
+    private readonly ISchedulerFactory _schedulerFactory;
     private readonly IUnitOfWork _unitOfWork;
 
     public PublishDefinitionUseCase(
         IWorkflowDefinitionRepository definitionRepository,
         IWebhookRouteRepository webhookRouteRepository,
+        ISchedulerFactory schedulerFactory,
         IUnitOfWork unitOfWork)
     {
         _definitionRepository = definitionRepository;
         _webhookRouteRepository = webhookRouteRepository;
+        _schedulerFactory = schedulerFactory;
         _unitOfWork = unitOfWork;
     }
 
@@ -63,6 +67,8 @@ public class PublishDefinitionUseCase : IPublishDefinitionUseCase
         }
 
         await WebhookRouteSyncHelper.SyncAsync(_webhookRouteRepository, definition.Id, definition.DefinitionJson, cancellationToken);
+        var scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
+        await CronScheduleSyncHelper.SyncAsync(scheduler, definition.Id, definition.DefinitionJson, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(new PublishDefinitionResponse

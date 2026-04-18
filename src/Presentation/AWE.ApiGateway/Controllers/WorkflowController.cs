@@ -7,7 +7,6 @@ using AWE.Application.UseCases.Workflows.DeleteDefinition;
 using AWE.Application.UseCases.Workflows.ExportDefinition;
 using AWE.Application.UseCases.Workflows.ImportDefinition;
 using AWE.Application.UseCases.Workflows.PublishDefinition;
-using AWE.Application.UseCases.Workflows.ScheduleDefinition;
 using AWE.Application.UseCases.Workflows.UnpublishDefinition;
 using AWE.Application.UseCases.Workflows.UpdateDefinition;
 using AWE.Contracts.Messages;
@@ -349,21 +348,6 @@ public class WorkflowController : ApiController
         await unitOfWork.SaveChangesAsync(ct);
 
         return HandleResult(Result.Success());
-    }
-
-    /// <summary>
-    /// Thêm lịch chạy (Cron) cho Workflow
-    /// </summary>
-    [HttpPost("{definitionId}/schedules")]
-    [Authorize(Policy = AppPolicies.RequireEditor)]
-    public async Task<IActionResult> CreateSchedule(Guid definitionId, [FromBody] CreateScheduleRequest request, [FromServices] ICreateScheduleUseCase useCase , CancellationToken cancellationToken)
-    {
-        var command = new CreateScheduleCommand(definitionId, request.CronExpression);
-
-        Result<ScheduleResponse> result = await useCase.ExecuteAsync(command, cancellationToken);
-
-        // Uỷ quyền cho BaseController xử lý việc map ra HTTP 200, 400, hay 404
-        return HandleResult(result);
     }
 
     private static JsonElement? TryGetMetadataValue(JsonDocument metadata, params string[] candidateKeys)

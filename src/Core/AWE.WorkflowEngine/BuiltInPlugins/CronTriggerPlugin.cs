@@ -7,6 +7,7 @@ public class CronTriggerInput
 {
     public string CronExpression { get; set; } = "* * * * *";
     public string? TimeZone { get; set; }
+    public string? TimeZoneId { get; set; }
 }
 
 public class CronTriggerPlugin : ITriggerPlugin
