@@ -6,6 +6,7 @@ namespace AWE.Application.Abstractions.Persistence;
 public interface IWorkflowInstanceRepository
 {
     Task<WorkflowInstance?> GetInstanceByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<WorkflowInstance?> GetByDefinitionAndIdempotencyKeyAsync(Guid definitionId, string idempotencyKey, CancellationToken cancellationToken = default);
     Task<WorkflowInstanceStatus?> GetInstanceStatusAsync(Guid id, CancellationToken cancellationToken = default);
     Task<WorkflowInstance?> GetInstanceWithPointersAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<WorkflowInstance>> GetInstancesByStatusAsync(WorkflowInstanceStatus status, CancellationToken cancellationToken = default);

@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using AWE.Domain.Enums;
 
 namespace AWE.Application.Abstractions.CoreEngine;
 
@@ -22,4 +23,6 @@ public interface ITransitionEvaluator
     /// <returns>A list of strings containing the identifiers of start nodes matching the required type. The list is empty if no
     /// matching nodes are found.</returns>
     List<string> FindStartNodeIdsWithType(JsonDocument defJson);
+
+    List<string> FindStartNodeIdsByTrigger(JsonDocument defJson, WorkflowTriggerSource triggerSource, string? triggerRoutePath = null);
 }

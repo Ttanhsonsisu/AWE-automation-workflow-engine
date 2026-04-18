@@ -12,7 +12,9 @@ public record CatalogItemDto(
     string Icon,
     string ExecutionMode,
     JsonElement InputSchema,
-    JsonElement OutputSchema
+    JsonElement OutputSchema,
+    string? TriggerSource,
+    bool IsSingleton
 );
 
 public record CatalogGroupDto(

@@ -8,7 +8,9 @@ using AWE.Domain.Enums;
 using AWE.Shared.Consts;
 using AWE.Shared.Primitives;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace AWE.WorkflowEngine.Services;
 
@@ -46,7 +48,9 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         Guid? correlationId,
         bool isTest = false,
         string? stopAtStepId = null,
-        string? idempotencyKey = null)
+        string? idempotencyKey = null,
+        WorkflowTriggerSource triggerSource = WorkflowTriggerSource.Manual,
+        string? triggerRoutePath = null)
     {
         var def = await _defRepo.GetDefinitionByIdAsync(definitionId);
         if (def == null) return Result.Failure<Guid>(Error.NotFound("Definition.NotFound", ""));
@@ -79,11 +83,13 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         // support multiple start nodes, nên phải lưu DB trước để có InstanceId, phục vụ cho việc tạo ExecutionPointer và Dispatch sau này
         // 3. Khởi tạo TẤT CẢ các Start Pointers
-        var startNodeIds = _evaluator.FindStartNodeIdsWithType(def.DefinitionJson);
+        var startNodeIds = _evaluator.FindStartNodeIdsByTrigger(def.DefinitionJson, triggerSource, triggerRoutePath);
 
         if (startNodeIds.Count == 0)
         {
-            return Result.Failure<Guid>(Error.Validation("Workflow.NoTrigger", "Không tìm thấy Node Trigger nào (VD: ManualTrigger) để khởi động Workflow."));
+            return Result.Failure<Guid>(Error.Validation(
+                "Workflow.NoMatchingTrigger",
+                $"Không tìm thấy Trigger phù hợp cho nguồn '{triggerSource}' trong workflow definition."));
         }
 
         // add vào List để sau này có thể dùng chung cho việc Dispatch, tránh phải query lại DB nhiều lần trong vòng lặp
@@ -125,7 +131,25 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         }
 
         // 4. Lưu DB (Atomic) chốt hạ tất cả Pointers và Messages cùng lúc
-        await _uow.SaveChangesAsync();
+        try
+        {
+            await _uow.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (!string.IsNullOrWhiteSpace(idempotencyKey) && IsUniqueIdempotencyViolation(ex))
+        {
+            var existing = await _instanceRepo.GetByDefinitionAndIdempotencyKeyAsync(def.Id, idempotencyKey!, CancellationToken.None);
+            if (existing is not null)
+            {
+                _logger.LogInformation(
+                    "Detected duplicate workflow start by idempotency key. Returning existing instance {InstanceId} for Definition {DefinitionId}.",
+                    existing.Id,
+                    def.Id);
+
+                return Result.Success(existing.Id);
+            }
+
+            throw;
+        }
 
         // 5. Ghi log bắt đầu Workflow
         _logger.LogInformation("Started Job '{Name}' (ID: {Id}) with {Count} Start Nodes.", jobName, instance.Id, startNodeIds.Count);
@@ -166,6 +190,24 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         //await _uow.SaveChangesAsync();
 
         return Result.Success(instance.Id);
+    }
+
+    private static bool IsUniqueIdempotencyViolation(DbUpdateException exception)
+    {
+        if (exception.InnerException is PostgresException pg
+            && pg.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            if (!string.IsNullOrWhiteSpace(pg.ConstraintName)
+                && pg.ConstraintName.Contains("idempotency", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var detail = pg.Detail ?? string.Empty;
+            return detail.Contains("idempotency", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
     public async Task<Result> HandleStepCompletionAsync(Guid instanceId, Guid executionPointerId, JsonDocument? eventOutput)

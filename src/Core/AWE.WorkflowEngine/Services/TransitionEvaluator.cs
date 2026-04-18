@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using AWE.Application.Abstractions.CoreEngine;
+using AWE.Domain.Enums;
 using Jint;
 using Microsoft.Extensions.Logging;
 
@@ -135,7 +136,8 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
         var allowedTriggerTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "ManualTrigger",
-            "WebhookTrigger"
+            "WebhookTrigger",
+            "CronTrigger"
             //"WebhookReceiver",
             //"ScheduleTimer" 
         };
@@ -159,6 +161,89 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
         }
 
         return startNodes;
+    }
+
+    public List<string> FindStartNodeIdsByTrigger(JsonDocument defJson, WorkflowTriggerSource triggerSource, string? triggerRoutePath = null)
+    {
+        var root = defJson.RootElement;
+        if (!root.TryGetProperty("Steps", out var stepsElement))
+            throw new InvalidOperationException("Workflow definition is missing 'Steps' array.");
+
+        var expectedType = triggerSource switch
+        {
+            WorkflowTriggerSource.Webhook => "WebhookTrigger",
+            WorkflowTriggerSource.Cron => "CronTrigger",
+            WorkflowTriggerSource.Chat => "ChatTrigger",
+            _ => "ManualTrigger"
+        };
+
+        var startNodes = new List<string>();
+
+        foreach (var step in stepsElement.EnumerateArray())
+        {
+            if (!TryGetPropertyIgnoreCase(step, "Type", out var typeElement)
+                || typeElement.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var stepType = typeElement.GetString();
+            if (!string.Equals(stepType, expectedType, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (triggerSource == WorkflowTriggerSource.Webhook
+                && !string.IsNullOrWhiteSpace(triggerRoutePath)
+                && !IsWebhookRouteMatched(step, triggerRoutePath))
+            {
+                continue;
+            }
+
+            var id = step.GetProperty("Id").GetString();
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                startNodes.Add(id);
+            }
+        }
+
+        return startNodes;
+    }
+
+    private static bool IsWebhookRouteMatched(JsonElement step, string triggerRoutePath)
+    {
+        if (!TryGetPropertyIgnoreCase(step, "Inputs", out var inputs)
+            || inputs.ValueKind != JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        if (!TryGetPropertyIgnoreCase(inputs, "RoutePath", out var routePathElement)
+            || routePathElement.ValueKind != JsonValueKind.String)
+        {
+            return true;
+        }
+
+        var stepRoutePath = routePathElement.GetString();
+        return string.Equals(stepRoutePath, triggerRoutePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement propertyValue)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    propertyValue = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        propertyValue = default;
+        return false;
     }
 
     private bool EvaluateCondition(string conditionExpression, JsonDocument context)

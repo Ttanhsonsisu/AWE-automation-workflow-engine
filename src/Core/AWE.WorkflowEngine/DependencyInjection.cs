@@ -24,7 +24,7 @@ public static class DependencyInjection
         services.AddHostedService<RecoveryBackgroundService>();
         services.AddHostedService<PluginGarbageCollectorService>();
         //services.AddHostedService<DelayWakeUpBackgroundService>();
-        //services.AddHostedService<CronSchedulePublisherService>();
+        services.AddHostedService<CronSchedulePublisherService>();
 
         // add built-in plugins
         services.AddScoped<IPluginRegistry, PluginRegistry>();
@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddTransient<IWorkflowPlugin, RetryTestPlugin>();
         services.AddTransient<IWorkflowPlugin, ManualTriggerPlugin>();
         services.AddTransient<IWorkflowPlugin, WebhookTriggerPlugin>();
+        services.AddTransient<IWorkflowPlugin, CronTriggerPlugin>();
 
         return services;
     }

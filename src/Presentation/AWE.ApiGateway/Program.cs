@@ -2,6 +2,7 @@
 using System.Text.Json;
 using AWE.ApiGateway.Consumers;
 using AWE.ApiGateway.Middlewares;
+using AWE.ApiGateway.Services;
 using AWE.Application;
 using AWE.Contracts.Messages;
 using AWE.Infrastructure;
@@ -11,7 +12,9 @@ using AWE.WorkflowEngine;
 using AWE.WorkflowEngine.Services;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using System.Threading.RateLimiting;
 
 // ================================================================
 // Application bootstrap
@@ -24,6 +27,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 builder.Services.AddMemoryCache();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("WebhookIngress", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 60;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        limiterOptions.QueueLimit = 20;
+    });
+});
+
+builder.Services.AddScoped<IWebhookSignatureVerificationStrategy, GithubWebhookSignatureVerificationStrategy>();
+builder.Services.AddScoped<IWebhookSignatureVerificationStrategy, StripeWebhookSignatureVerificationStrategy>();
+builder.Services.AddScoped<IWebhookSignatureVerificationStrategy, GenericWebhookSignatureVerificationStrategy>();
+builder.Services.AddScoped<IWebhookSignatureVerifier, WebhookSignatureVerifier>();
+builder.Services.AddScoped<IWebhookIngressService, WebhookIngressService>();
 // config jwt authentication (adjust as needed for your auth setup)
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -146,6 +166,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
+app.UseRateLimiter();
 
 app.UseAuthentication();
 

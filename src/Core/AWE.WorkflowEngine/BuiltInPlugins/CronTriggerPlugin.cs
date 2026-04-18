@@ -3,24 +3,24 @@ using AWE.Sdk.v2;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
 
-public class WebhookTriggerInput
+public class CronTriggerInput
 {
-    public string RoutePath { get; set; } = string.Empty;
-    public string? SecretToken { get; set; }
-    public string? IdempotencyKeyPath { get; set; }
+    public string CronExpression { get; set; } = "* * * * *";
+    public string? TimeZone { get; set; }
 }
 
-public class WebhookTriggerPlugin : ITriggerPlugin
+public class CronTriggerPlugin : ITriggerPlugin
 {
-    public string Name => "WebhookTrigger";
-    public string TriggerSource => "Webhook";
-    public bool IsSingleton => false;
-    public string DisplayName => "Webhook Trigger";
-    public string Description => "Điểm khởi đầu cho luồng webhook. Nhận payload từ API Gateway và chuyển tiếp cho các node tiếp theo.";
-    public string Category => "Trigger";
-    public string Icon => "lucide-webhook";
+    public string Name => "CronTrigger";
+    public string TriggerSource => "Cron";
+    public bool IsSingleton => true;
 
-    public Type? InputType => typeof(WebhookTriggerInput);
+    public string DisplayName => "Kích Hoạt Theo Lịch";
+    public string Description => "Điểm khởi đầu cho các luồng chạy định kỳ theo biểu thức Cron.";
+    public string Category => "Trigger";
+    public string Icon => "lucide-calendar-clock";
+
+    public Type? InputType => typeof(CronTriggerInput);
     public Type? OutputType => null;
 
     public Task<PluginResult> ExecuteAsync(PluginContext context)

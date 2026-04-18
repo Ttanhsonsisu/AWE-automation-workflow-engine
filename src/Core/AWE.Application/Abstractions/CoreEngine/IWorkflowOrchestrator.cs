@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 
 namespace AWE.Application.Abstractions.CoreEngine;
@@ -12,7 +13,9 @@ public interface IWorkflowOrchestrator
         Guid? correlationId,
         bool isTest = false,
         string? stopAtStepId = null,
-        string? idempotencyKey = null);
+        string? idempotencyKey = null,
+        WorkflowTriggerSource triggerSource = WorkflowTriggerSource.Manual,
+        string? triggerRoutePath = null);
 
     Task<Result> HandleStepCompletionAsync(Guid instanceId, Guid executionPointerId, JsonDocument? output);
     Task<Result> HandleStepFailureAsync(Guid instanceId, Guid executionPointerId, string error);
