@@ -169,12 +169,12 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
         if (!root.TryGetProperty("Steps", out var stepsElement))
             throw new InvalidOperationException("Workflow definition is missing 'Steps' array.");
 
-        var expectedType = triggerSource switch
+        var expectedTypes = triggerSource switch
         {
-            WorkflowTriggerSource.Webhook => "WebhookTrigger",
-            WorkflowTriggerSource.Cron => "CronTrigger",
-            WorkflowTriggerSource.Chat => "ChatTrigger",
-            _ => "ManualTrigger"
+            WorkflowTriggerSource.Webhook => new[] { "WebhookTrigger", "WebhookTriggerPlugin" },
+            WorkflowTriggerSource.Cron => new[] { "CronTrigger", "CronTriggerPlugin" },
+            WorkflowTriggerSource.Chat => new[] { "ChatTrigger", "ChatTriggerPlugin" },
+            _ => new[] { "ManualTrigger", "ManualTriggerPlugin" }
         };
 
         var startNodes = new List<string>();
@@ -188,7 +188,8 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
             }
 
             var stepType = typeElement.GetString();
-            if (!string.Equals(stepType, expectedType, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(stepType)
+                || !expectedTypes.Any(x => string.Equals(stepType, x, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

@@ -17,4 +17,7 @@ public class UiFieldAttribute : Attribute
     /// Biểu thức hiển thị (Ví dụ: "Channels.Contains('Email')")
     /// </summary>
     public string? ShowIf { get; set; }
+
+    public string? Label { get; set; } // Tên hiển thị trên form
+    public string? DataSourceUrl { get; set; }
 }

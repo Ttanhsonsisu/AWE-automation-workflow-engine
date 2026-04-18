@@ -96,6 +96,16 @@ public class UiFieldSchemaProcessor : ISchemaProcessor
             {
                 context.Schema.ExtensionData["x-show-if"] = uiAttr.ShowIf;
             }
+
+            if (!string.IsNullOrWhiteSpace(uiAttr.Label))
+            {
+                context.Schema.ExtensionData["x-label"] = uiAttr.Label;
+            }
+
+            if (!string.IsNullOrWhiteSpace(uiAttr.DataSourceUrl))
+            {
+                context.Schema.ExtensionData["x-data-source-url"] = uiAttr.DataSourceUrl;
+            }
         }
     }
 }

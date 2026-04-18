@@ -103,13 +103,12 @@ internal static class CronScheduleSyncHelper
                 continue;
             }
 
-            TryGetStringProperty(inputs, "TimeZone", out var timeZone);
-            if (string.IsNullOrWhiteSpace(timeZone))
+            if (!TryGetStringProperty(inputs, "TimeZoneId", out var timeZoneId))
             {
-                TryGetStringProperty(inputs, "TimeZoneId", out timeZone);
+                timeZoneId = null;
             }
 
-            return new CronConfig(cronExpression.Trim(), string.IsNullOrWhiteSpace(timeZone) ? null : timeZone.Trim());
+            return new CronConfig(cronExpression.Trim(), string.IsNullOrWhiteSpace(timeZoneId) ? null : timeZoneId.Trim());
         }
 
         return null;

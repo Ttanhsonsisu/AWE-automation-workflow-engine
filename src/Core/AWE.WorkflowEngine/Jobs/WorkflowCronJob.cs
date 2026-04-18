@@ -9,12 +9,13 @@ namespace AWE.WorkflowEngine.Jobs;
 
 [DisallowConcurrentExecution]
 public class WorkflowCronJob(
-    IPublishEndpoint publishEndpoint,
+    IBus bus,
     ILogger<WorkflowCronJob> logger) : IJob
 {
     public const string DefinitionIdJobDataKey = "DefinitionId";
+    private const string SubmitWorkflowRoutingKey = "workflow.job.submit";
 
-    private readonly IPublishEndpoint _publishEndpoint = publishEndpoint;
+    private readonly IBus _publishEndpoint = bus;
     private readonly ILogger<WorkflowCronJob> _logger = logger;
 
     public async Task Execute(IJobExecutionContext context)
@@ -54,7 +55,10 @@ public class WorkflowCronJob(
             CorrelationId: Guid.NewGuid(),
             TriggerSource: WorkflowTriggerSource.Cron);
 
-        await _publishEndpoint.Publish(command, context.CancellationToken);
+        await _publishEndpoint.Publish(command, publishContext =>
+        {
+            publishContext.SetRoutingKey(SubmitWorkflowRoutingKey);
+        }, context.CancellationToken);
 
         _logger.LogInformation(
             "Quartz WorkflowCronJob published SubmitWorkflowCommand for DefinitionId={DefinitionId}, JobKey={JobKey}",

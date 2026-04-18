@@ -41,25 +41,33 @@ public class JobExecutionConsumer : IConsumer<SubmitWorkflowCommand>
             triggerRoutePath: cmd.TriggerRoutePath
         );
 
+        var canRespond = context.RequestId.HasValue && context.ResponseAddress is not null;
+
         if (result.IsSuccess)
         {
             _logger.LogInformation("✅ [SUCCESS] StartJob completed. InstanceId: {InstanceId}", result.Value);
 
-            await context.RespondAsync(new SubmitWorkflowResponse(
-                IsSuccess: true,
-                InstanceId: result.Value,
-                CorrelationId: cmd.CorrelationId));
+            if (canRespond)
+            {
+                await context.RespondAsync(new SubmitWorkflowResponse(
+                    IsSuccess: true,
+                    InstanceId: result.Value,
+                    CorrelationId: cmd.CorrelationId));
+            }
 
             return;
         }
 
         _logger.LogWarning("❌ [FAILED] StartJob failed. Code: {Code}, Message: {Message}", result.Error?.Code, result.Error?.Message);
 
-        await context.RespondAsync(new SubmitWorkflowResponse(
-            IsSuccess: false,
-            InstanceId: null,
-            CorrelationId: cmd.CorrelationId,
-            ErrorCode: result.Error?.Code,
-            ErrorMessage: result.Error?.Message));
+        if (canRespond)
+        {
+            await context.RespondAsync(new SubmitWorkflowResponse(
+                IsSuccess: false,
+                InstanceId: null,
+                CorrelationId: cmd.CorrelationId,
+                ErrorCode: result.Error?.Code,
+                ErrorMessage: result.Error?.Message));
+        }
     }
 }
