@@ -25,6 +25,8 @@ public static class DependencyInjection
         // add backgroundservice
         services.AddHostedService<RecoveryBackgroundService>();
         services.AddHostedService<PluginGarbageCollectorService>();
+        services.AddHostedService<QuartzScheduleBootstrapService>();
+        services.AddHostedService<WorkflowSchedulerSyncReconcilerService>();
         //services.AddHostedService<DelayWakeUpBackgroundService>();
 
         // add built-in plugins

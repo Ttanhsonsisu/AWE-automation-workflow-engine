@@ -1,7 +1,7 @@
 ﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Application.UseCases.Workflows;
+using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
-using Quartz;
 
 namespace AWE.Application.UseCases.Workflows.UnpublishDefinition;
 
@@ -9,18 +9,18 @@ public class UnpublishDefinitionUseCase : IUnpublishDefinitionUseCase
 {
     private readonly IWorkflowDefinitionRepository _definitionRepository;
     private readonly IWebhookRouteRepository _webhookRouteRepository;
-    private readonly ISchedulerFactory _schedulerFactory;
+    private readonly IWorkflowSchedulerSyncTaskRepository _schedulerSyncTaskRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public UnpublishDefinitionUseCase(
         IWorkflowDefinitionRepository definitionRepository,
         IWebhookRouteRepository webhookRouteRepository,
-        ISchedulerFactory schedulerFactory,
+        IWorkflowSchedulerSyncTaskRepository schedulerSyncTaskRepository,
         IUnitOfWork unitOfWork)
     {
         _definitionRepository = definitionRepository;
         _webhookRouteRepository = webhookRouteRepository;
-        _schedulerFactory = schedulerFactory;
+        _schedulerSyncTaskRepository = schedulerSyncTaskRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -46,8 +46,7 @@ public class UnpublishDefinitionUseCase : IUnpublishDefinitionUseCase
             await _webhookRouteRepository.UpdateAsync(route, cancellationToken);
         }
 
-        var scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
-        await CronScheduleSyncHelper.DeleteAsync(scheduler, definition.Id, cancellationToken);
+        await _schedulerSyncTaskRepository.EnqueueAsync(definition.Id, WorkflowSchedulerSyncOperation.Unpublish, cancellationToken);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

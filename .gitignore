@@ -154,3 +154,7 @@ App_Data/
 **/appsettings.Staging.json
 **/appsettings.Production.json
 **/PublishProfiles
+/.dotnet/.dotnet
+/.dotnet-home/.dotnet
+/build-api.log,verbosity
+/build-worker.log,verbosity
