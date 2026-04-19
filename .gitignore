@@ -143,7 +143,7 @@ docker-compose.override.yml
 # Application specific uploads (if running locally)
 wwwroot/uploads/
 App_Data/
-
+.github/
 # ENV & SECRETS
 .env
 .env.*
@@ -153,3 +153,8 @@ App_Data/
 **/appsettings.Development.json
 **/appsettings.Staging.json
 **/appsettings.Production.json
+**/PublishProfiles
+/.dotnet/.dotnet
+/.dotnet-home/.dotnet
+/build-api.log,verbosity
+/build-worker.log,verbosity

@@ -9,9 +9,23 @@ networks:
 volumes:
   rabbitmq-data:
   postgres-data:
+  minio-data:
+  redis-data:
 
 services:
 
+  #MINI IO
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_PORT}:9000"
+      - "${MINIO_MANAGEMENT_PORT}:9001"
+    volumes:
+      - minio-data:/data 
   # DATABASE POSTGRESQL
   postgres:
       image: postgres:${POSTGRES_IMAGE_TAG}
@@ -22,11 +36,70 @@ services:
       environment:
         POSTGRES_USER: ${POSTGRES_USER}
         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-        POSTGRES_DB: awe_db
+        # POSTGRES_DB: awe_db
       volumes:
         - postgres-data:/var/lib/postgresql/data
+        - ./init-dbs.sh:/docker-entrypoint-initdb.d/init-dbs.sh:ro
       networks:
         - awe-network
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d awe_db"]
+        interval: 5s
+        timeout: 5s
+        retries: 10
+
+  # ----------------------------------------
+  # 3. KEYCLOAK (Identity & SSO)
+  # ----------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: awe-keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080" 
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - awe-network
+
+  # REDIS
+  redis:
+    image: redis:${REDIS_IMAGE_TAG}
+    container_name: awe-redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --requirepass "${REDIS_PASSWORD}" --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - awe-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # REDIS INSIGHT (GUI)
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: awe-redisinsight
+    restart: unless-stopped
+    ports:
+      - "${REDISINSIGHT_PORT:-5540}:5540"
+    networks:
+      - awe-network
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # RABBITMQ   
   rabbitmq:

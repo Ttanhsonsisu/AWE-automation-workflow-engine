@@ -1,0 +1,237 @@
+﻿using AWE.Domain.Common;
+using AWE.Domain.Enums;
+using System.Text.Json;
+
+namespace AWE.Domain.Entities;
+
+public class ExecutionPointer : Entity
+{
+    public Guid InstanceId { get; private set; }
+    public string StepId { get; private set; } = string.Empty;
+
+    // --- Token Identity (Cho Atomic Join sau này) ---
+    public Guid? ParentTokenId { get; private set; }
+    public string BranchId { get; private set; }
+
+    public ExecutionPointerStatus Status { get; set; }
+    public bool Active { get; private set; }
+
+    // --- Leasing (Zombie Detection) ---
+    public DateTime? LeasedUntil { get; private set; }
+    public string? LeasedBy { get; private set; }
+
+    public int RetryCount { get; private set; }
+    public Guid? PredecessorId { get; private set; }
+    public JsonDocument Scope { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime? StartTime { get; private set; }
+    public DateTime? EndTime { get; private set; }
+    // Cờ đánh dấu Engine đã xử lý định tuyến (sinh nhánh con) xong chưa
+    public bool Routed { get; private set; } = false;
+
+    // [CHANGE] Đổi tên StepContext -> Output cho đúng ngữ nghĩa "Kết quả trả về"
+    public JsonDocument? Output { get; set; }
+    // Trường này dùng để lưu thời điểm đánh thức lại Node "Wait" từ API bên ngoài, giúp phân biệt với EndTime của Worker bình thường
+    public DateTime? ResumeAt { get; set; }
+
+    public JsonDocument? InputData { get; private set; }
+    public virtual WorkflowInstance Instance { get; private set; } = null!;
+    public virtual ICollection<ExecutionLog> ExecutionLogs { get; private set; } = new List<ExecutionLog>();
+
+    private ExecutionPointer() { }
+
+    public ExecutionPointer(
+        Guid instanceId,
+        string stepId,
+        Guid? predecessorId = null,
+        JsonDocument? scope = null,
+        Guid? parentTokenId = null,
+        string branchId = "ROOT")
+    {
+        if (string.IsNullOrWhiteSpace(stepId))
+            throw new ArgumentException("Step ID cannot be empty", nameof(stepId));
+
+        InstanceId = instanceId;
+        StepId = stepId;
+        ParentTokenId = parentTokenId;
+        BranchId = branchId;
+        PredecessorId = predecessorId;
+
+        Status = ExecutionPointerStatus.Pending; // Mặc định là Pending đợi Worker nhận
+        Active = true;
+        RetryCount = 0;
+        Scope = scope ?? JsonDocument.Parse("[]");
+        CreatedAt = DateTime.UtcNow;
+    }
+
+    // --- State Machine & Leasing Logic ---
+
+
+    public bool TryAcquireLease(string workerId, TimeSpan leaseDuration)
+    {
+        if (string.IsNullOrWhiteSpace(workerId))
+            throw new ArgumentException("Worker ID required");
+
+        var now = DateTime.UtcNow;
+
+        // Case 1: Nhận việc mới
+        if (Status == ExecutionPointerStatus.Pending)
+        {
+            Status = ExecutionPointerStatus.Running;
+            StartTime = now;
+            LeasedUntil = now.Add(leaseDuration);
+            LeasedBy = workerId;
+            return true;
+        }
+
+        // Case 2: Cướp lại việc của Zombie (Worker cũ bị chết)
+        if (Status == ExecutionPointerStatus.Running && LeasedUntil.HasValue && LeasedUntil.Value < now)
+        {
+            StartTime = now;
+            LeasedUntil = now.Add(leaseDuration);
+            LeasedBy = workerId;
+            RetryCount++; // Tính là 1 lần retry
+            return true;
+        }
+
+        return false;
+    }
+
+    public void RenewLease(string workerId, TimeSpan leaseDuration)
+    {
+        ValidateLeaseOwnership(workerId);
+        LeasedUntil = DateTime.UtcNow.Add(leaseDuration);
+    }
+
+    public void Complete(string workerId, JsonDocument? output)
+    {
+        ValidateLeaseOwnership(workerId);
+
+        Status = ExecutionPointerStatus.Completed;
+        Active = false; // Đánh dấu pointer này đã xong nhiệm vụ
+
+        // Clear Lease để không ai pickup nhầm nữa
+        LeasedUntil = null;
+        LeasedBy = null;
+
+        // [CHANGE] Lưu output
+        Output = output;
+        EndTime = DateTime.UtcNow;
+    }
+
+    public void MarkAsFailed(string workerId, JsonDocument? errorContext)
+    {
+        ValidateLeaseOwnership(workerId);
+
+        Status = ExecutionPointerStatus.Failed;
+        Active = false;
+        LeasedUntil = null;
+        LeasedBy = null;
+
+        // Có thể lưu lỗi vào Output hoặc một cột ErrorData riêng (Ở đây tạm lưu vào Output)
+        Output = errorContext;
+        EndTime = DateTime.UtcNow;
+    }
+
+    public void MarkAsFailedByEngine(JsonDocument? errorContext)
+    {
+        Status = ExecutionPointerStatus.Failed;
+        Active = false;
+        LeasedUntil = null;
+        LeasedBy = null;
+        Output = errorContext;
+        EndTime = DateTime.UtcNow;
+    }
+
+    public void Skip()
+    {
+        Status = ExecutionPointerStatus.Skipped;
+        Active = false;
+        LeasedUntil = null;
+        LeasedBy = null;
+        EndTime = DateTime.UtcNow;
+    }
+
+    // Hàm này dùng để "đánh thức" Node "Wait" từ API bên ngoài, nên không cần kiểm tra lease
+    public void HibernateUntil(DateTime resumeTime)
+    {
+        Status = ExecutionPointerStatus.Suspended;
+        ResumeAt = resumeTime;
+    }
+
+    public void PauseForWebhook()
+    {
+        Status = ExecutionPointerStatus.Suspended;
+        ResumeAt = null;
+    }
+
+    public void ResetToPending()
+    {
+        if (Status == ExecutionPointerStatus.Completed || Status == ExecutionPointerStatus.Skipped)
+            throw new InvalidOperationException($"Cannot reset terminal state: {Status}");
+
+        Status = ExecutionPointerStatus.Pending;
+        LeasedUntil = null;
+        LeasedBy = null;
+        RetryCount++;
+    }
+
+    public bool IsZombie()
+    {
+        return Status == ExecutionPointerStatus.Running
+            && LeasedUntil.HasValue
+            && LeasedUntil.Value < DateTime.UtcNow;
+    }
+
+    private void ValidateLeaseOwnership(string workerId)
+    {
+        // Logic kiểm tra rất chặt chẽ, tốt!
+        if (LeasedBy != workerId)
+            throw new InvalidOperationException($"Lease conflict: Held by {LeasedBy}, request by {workerId}");
+
+        if (Status != ExecutionPointerStatus.Running)
+            throw new InvalidOperationException($"Invalid status transition from {Status}");
+    }
+
+    /// <summary>
+    /// Hàm dùng riêng cho việc đánh thức Node "Wait" từ API bên ngoài
+    /// </summary>
+    /// <param name="output"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    public void CompleteFromWait(JsonDocument? output)
+    {
+        if (Status != ExecutionPointerStatus.Suspended)
+            throw new InvalidOperationException($"Cannot resume step from status: {Status}");
+
+        Status = ExecutionPointerStatus.Completed;
+        Active = false; // Đã xong nhiệm vụ
+        Output = output; // Lưu data từ Webhook gửi vào
+        EndTime = DateTime.UtcNow;
+        ResumeAt = null;
+    }
+
+    public void WakeUp()
+    {
+        if (Status != ExecutionPointerStatus.Suspended)
+            throw new InvalidOperationException($"Cannot wake up step from status: {Status}");
+
+        Status = ExecutionPointerStatus.Pending; // Trả về Pending để Worker/Engine xử lý tiếp
+        ResumeAt = null; // Tắt chuông báo thức
+    }
+
+    public void MarkAsRouted()
+    {
+        Routed = true;
+    }
+
+    // Hàm này dùng để cập nhật InputData khi khởi tạo Workflow, giúp lưu lại dữ liệu gốc ban đầu cho toàn bộ workflow
+    public void SetInput(JsonDocument input)
+    {
+        InputData = input;
+    }
+
+    public void Start()
+    {
+        StartTime = DateTime.UtcNow;
+    }
+}

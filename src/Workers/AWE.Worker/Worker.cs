@@ -1,0 +1,333 @@
+﻿using System.Text.Json;
+using System.Text.Json.Nodes;
+using AWE.Application.Abstractions.CoreEngine;
+using AWE.Application.Abstractions.Persistence;
+using AWE.Contracts.Messages;
+using AWE.Domain.Entities;
+using AWE.Domain.Enums;
+using AWE.Infrastructure.Plugins;
+using AWE.Sdk.v2;
+using AWE.Shared.Consts;
+using MassTransit;
+
+namespace AWE.Worker;
+
+public class PluginConsumer : IConsumer<ExecutePluginCommand>
+{
+    private readonly ILogger<PluginConsumer> _logger;
+    private readonly IExecutionPointerRepository _pointerRepo;
+    private readonly IUnitOfWork _uow;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly IPluginRegistry _registry;
+    //private readonly PluginLoader _pluginLoader;
+    private readonly PluginCacheManager _pluginCacheManager;
+
+    // Worker ID
+    private readonly string _workerId = $"Worker-{Environment.MachineName}-{Guid.NewGuid().ToString()[..4]}";
+
+    public PluginConsumer(
+        ILogger<PluginConsumer> logger,
+        IExecutionPointerRepository pointerRepo,
+        IUnitOfWork uow,
+        IServiceProvider serviceProvider,
+        IPluginRegistry registry,
+        //PluginLoader pluginLoader,
+        PluginCacheManager pluginCacheManager
+        )
+    {
+        _logger = logger;
+        _pointerRepo = pointerRepo;
+        _uow = uow;
+        _serviceProvider = serviceProvider;
+        _registry = registry;
+        //_pluginLoader = pluginLoader;
+        _pluginCacheManager = pluginCacheManager;
+    }
+
+    public async Task Consume(ConsumeContext<ExecutePluginCommand> context)
+    {
+        var cmd = context.Message;
+        _logger.LogInformation("🛠️ [{Worker}] START Step {Node} ({Type})", _workerId, cmd.NodeId, cmd.StepType);
+
+        ExecutionPointer? pointer;
+
+        var acquired = await _pointerRepo.TryAcquireLeaseAsync(
+            cmd.ExecutionPointerId,
+            _workerId,
+            TimeSpan.FromMinutes(5),
+            context.CancellationToken);
+
+        if (!acquired)
+        {
+            pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId, context.CancellationToken);
+
+            if (pointer == null)
+            {
+                _logger.LogError("❌ Pointer {Id} not found.", cmd.ExecutionPointerId);
+                return;
+            }
+
+            if (pointer.Status == ExecutionPointerStatus.Completed)
+            {
+                _logger.LogWarning("⚠️ Step {Node} already completed.", cmd.NodeId);
+                return;
+            }
+
+            _logger.LogWarning("⚠️ Step {Node} is locked by another worker.", cmd.NodeId);
+            return;
+        }
+
+        pointer = await _pointerRepo.GetPointerByIdAsync(cmd.ExecutionPointerId, context.CancellationToken);
+        if (pointer == null)
+        {
+            _logger.LogError("❌ Pointer {Id} not found after lease acquisition.", cmd.ExecutionPointerId);
+            return;
+        }
+
+        // BẮN EVENT VÀ LOG CHO FRONTEND BIẾT BƯỚC NÀY ĐANG ĐƯỢC THỰC THI
+        await context.Publish(new StepStartedEvent(
+            InstanceId: cmd.InstanceId,
+            ExecutionPointerId: cmd.ExecutionPointerId,
+            StepId: cmd.NodeId,
+            StartedAt: DateTime.UtcNow
+        ));
+
+        // CHỈ BẮN LOG KHI ĐÃ CẦM CHẮC LEASE TRONG TAY
+        await context.Publish(new WriteAuditLogCommand(
+            InstanceId: cmd.InstanceId,
+            Event: "StepStarted",
+            Message: $"Bắt đầu thực thi Node: {cmd.NodeId}",
+            Level: Domain.Enums.LogLevel.Information,
+            ExecutionPointerId: cmd.ExecutionPointerId,
+            NodeId: cmd.NodeId,
+            WorkerId: Environment.MachineName
+        ));
+
+        // setup heartbeat running worker
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
+
+        // run Heartbeat in separate thread  
+        var heartbeatTask = StartHeartbeatLoopAsync(pointer.Id, _workerId, cts.Token);
+
+        try
+        {
+            // Bơm PointerId và InstanceId vào Payload để Plugin có thể dùng
+            // fix cứng trường hợp Payload là string hoặc null, array đảm bảo luôn có object để nhồi metadata, tránh lỗi khi plugin cố gắng đọc dữ liệu
+            JsonObject payloadObj;
+            try
+            {
+                var raw = string.IsNullOrWhiteSpace(cmd.Payload) ? "{}" : cmd.Payload;
+                var parsedNode = JsonNode.Parse(raw);
+
+                // Đảm bảo nó là Object (Nếu lỡ nó là Array thì bọc nó lại, hoặc gán mới)
+                payloadObj = parsedNode as JsonObject ?? new JsonObject();
+            }
+            catch (JsonException)
+            {
+                // Nếu payload lỗi cú pháp JSON, ta tự tạo object mới để nhồi metadata, tránh crash Worker
+                payloadObj = new JsonObject();
+                _logger.LogWarning("Payload is not a valid JSON object. Created an empty object to inject metadata.");
+            }
+
+            // Bơm thông tin hệ thống vào
+            payloadObj["PointerId"] = cmd.ExecutionPointerId.ToString();
+            payloadObj["InstanceId"] = cmd.InstanceId.ToString();
+
+            var enrichedPayload = payloadObj.ToJsonString();
+
+            // DYNAMIC ROUTER: Phân luồng thực thi (Hybrid Architecture)
+            PluginResult pluginResult;
+            var pluginContext = new PluginContext(enrichedPayload, context.CancellationToken);
+
+            switch (cmd.ExecutionMode)
+            {
+                case PluginExecutionMode.DynamicDll:
+                    if (string.IsNullOrWhiteSpace(cmd.ExecutionMetadataJson))
+                    {
+                        throw new NonRetryableException("ExecutionMetadataJson is required for DynamicDll mode.");
+                    }
+
+                    pluginResult = await _pluginCacheManager.ExecutePluginAsync(cmd.ExecutionMetadataJson!, enrichedPayload, context.CancellationToken);
+                    break;
+
+                case PluginExecutionMode.RemoteGrpc:
+                    // TODO: Mở rộng sau. Tạm thời văng lỗi để chặn.
+                    throw new NonRetryableException("gRPC Remote Runner is coming soon!");
+
+                case PluginExecutionMode.BuiltIn:
+                default:
+                    var builtInPlugin = _registry.GetPlugin(cmd.StepType);
+                    pluginResult = await builtInPlugin.ExecuteAsync(pluginContext);
+                    break;
+            }
+
+            // TẮT HEARTBEAT TRƯỚC KHI CHỐT DATA
+            await cts.CancelAsync();
+            try { await heartbeatTask; } catch { }
+
+            // PERSISTENCE & OUTBOX EVENT
+            if (pluginResult.IsSuspended == true)
+            {
+                // 1. NHÁNH SUSPEND: Plugin yêu cầu chờ (Approval / Payment)
+                _logger.LogInformation("[{Worker}] Step {Node} SUSPENDED. Reason: {Msg}", _workerId, cmd.NodeId, pluginResult.Message);
+
+                // Bắn lệnh về cho Core Engine để nó đổi trạng thái Database thành WaitingForEvent
+                await context.Publish(new SuspendStepCommand(
+                    InstanceId: cmd.InstanceId,
+                    PointerId: cmd.ExecutionPointerId,
+                    Reason: pluginResult.Message
+                ));
+
+                await context.Publish(new WriteAuditLogCommand(
+                    InstanceId: cmd.InstanceId,
+                    Event: "StepSuspended",
+                    Message: $"Node {cmd.NodeId} chuyển sang trạng thái chờ: {pluginResult.Message}",
+                    Level: Domain.Enums.LogLevel.Information,
+                    ExecutionPointerId: cmd.ExecutionPointerId,
+                    NodeId: cmd.NodeId,
+                    WorkerId: Environment.MachineName
+                ));
+
+                await _uow.SaveChangesAsync();
+            }
+            else if (pluginResult.IsSuccess)
+            {
+                // logic success, complete step
+                var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
+                pointer.Complete(_workerId, outputDoc);
+
+                var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}completed";
+                await context.Publish(new StepCompletedEvent(
+                      cmd.InstanceId, cmd.ExecutionPointerId, cmd.NodeId, outputDoc, DateTime.UtcNow
+                ), ctx => ctx.SetRoutingKey(routingKey));
+
+                _logger.LogInformation("[{Worker}] Step {Node} Completed.", _workerId, cmd.NodeId);
+
+                await context.Publish(new WriteAuditLogCommand(
+                    InstanceId: cmd.InstanceId,
+                    Event: "StepCompleted",
+                    Message: $"Node {cmd.NodeId} hoàn thành thành công.",
+                    Level: Domain.Enums.LogLevel.Information,
+                    ExecutionPointerId: cmd.ExecutionPointerId,
+                    NodeId: cmd.NodeId,
+                    WorkerId: Environment.MachineName,
+                    MetadataJson: JsonSerializer.Serialize(outputDoc)
+                ));
+
+                await _uow.SaveChangesAsync();
+            }
+            else
+            {
+                // throw error plugin 
+                throw new NonRetryableException(pluginResult.ErrorMessage ?? pluginResult.Message ?? "Plugin failed without message.");
+            }
+        }
+        catch (Exception ex) when (IsRetryable(ex))
+        {
+            _logger.LogError(ex, "[{Worker}] Retryable error on Step {Node}", _workerId, cmd.NodeId);
+
+            await cts.CancelAsync();
+            try { await heartbeatTask; } catch { }
+
+            await context.Publish(new WriteAuditLogCommand(
+                InstanceId: cmd.InstanceId,
+                Event: "StepError",
+                Message: $"Lỗi tạm thời khi thực thi Node: {ex.Message}",
+                Level: Domain.Enums.LogLevel.Error,
+                ExecutionPointerId: cmd.ExecutionPointerId,
+                NodeId: cmd.NodeId,
+                WorkerId: Environment.MachineName,
+                MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString(), Retryable = true })
+            ));
+
+            await HandleFailureAsync(pointer, cmd, ex.Message, context);
+            throw new RetryableException(ex.Message, ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[{Worker}] Error on Step {Node}", _workerId, cmd.NodeId);
+
+            await cts.CancelAsync();
+            try { await heartbeatTask; } catch { }
+
+            await context.Publish(new WriteAuditLogCommand(
+                InstanceId: cmd.InstanceId,
+                Event: "StepError",
+                Message: $"Lỗi khi thực thi Node: {ex.Message}",
+                Level: Domain.Enums.LogLevel.Error,
+                ExecutionPointerId: cmd.ExecutionPointerId,
+                NodeId: cmd.NodeId,
+                WorkerId: Environment.MachineName,
+                MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString(), Retryable = false })
+            ));
+            await HandleFailureAsync(pointer, cmd, ex.Message, context);
+            throw new NonRetryableException(ex.Message, ex);
+        }
+        finally
+        {
+            try { await heartbeatTask; } catch (OperationCanceledException) { }
+        }
+
+    }
+
+    private static bool IsRetryable(Exception ex)
+    {
+        return ex is RetryableException
+            || ex is TimeoutException
+            || ex is HttpRequestException
+            || ex is TaskCanceledException
+            || ex.InnerException is TimeoutException
+            || ex.InnerException is HttpRequestException;
+    }
+
+    private async Task HandleFailureAsync(ExecutionPointer pointer, ExecutePluginCommand cmd, string errorMsg, ConsumeContext context)
+    {
+        var errorDoc = JsonSerializer.SerializeToDocument(new { Error = errorMsg });
+        pointer.MarkAsFailed(_workerId, errorDoc);
+        //await _uow.SaveChangesAsync();
+
+        var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}failed";
+        await context.Publish(new StepFailedEvent(
+            InstanceId: cmd.InstanceId,
+            ExecutionPointerId: pointer.Id,
+            StepId: cmd.NodeId,
+            ErrorMessage: errorMsg,
+            FailedAt: DateTime.UtcNow
+        ), ctx => ctx.SetRoutingKey(routingKey));
+
+        await _uow.SaveChangesAsync();
+    }
+
+    // Logic Heartbeat Loop
+    private async Task StartHeartbeatLoopAsync(Guid pointerId, string workerId, CancellationToken ct)
+    {
+        // Cứ 10 giây báo cáo 1 lần. Gia hạn thêm 30 giây.
+        // Nếu Worker crash, sau 30 giây lease sẽ hết hạn -> Engine biết đường reset.
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+
+        while (await timer.WaitForNextTickAsync(ct))
+        {
+            try
+            {
+                // Tạo Scope mới vì Scope cũ của Consumer có thể đang bận
+                using var scope = _serviceProvider.CreateScope();
+                var repo = scope.ServiceProvider.GetRequiredService<IExecutionPointerRepository>();
+
+                var success = await repo.RenewLeaseAsync(pointerId, workerId, TimeSpan.FromSeconds(30), ct);
+
+                if (!success)
+                {
+                    // Nếu gia hạn thất bại (vd: Engine đã reset mất rồi),
+                    // ta nên tự sát (dừng plugin) để tránh lãng phí resource.
+                    _logger.LogWarning("⚠️ Lost ownership of step {Id}. Stopping heartbeat.", pointerId);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Lỗi mạng tạm thời, không throw để vòng lặp tiếp tục chạy lần sau
+                _logger.LogWarning("⚠️ Heartbeat failed: {Message}", ex.Message);
+            }
+        }
+    }
+}
