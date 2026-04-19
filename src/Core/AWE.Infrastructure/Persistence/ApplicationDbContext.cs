@@ -29,6 +29,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<SystemAuditLog> SystemAuditLogs => Set<SystemAuditLog>();
     public DbSet<ApprovalToken> ApprovalTokens => Set<ApprovalToken>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
+    public DbSet<WorkflowSchedulerSyncTask> WorkflowSchedulerSyncTasks => Set<WorkflowSchedulerSyncTask>();
 
     public DbSet<WebhookRoute> WebhookRoutes => Set<WebhookRoute>();
 

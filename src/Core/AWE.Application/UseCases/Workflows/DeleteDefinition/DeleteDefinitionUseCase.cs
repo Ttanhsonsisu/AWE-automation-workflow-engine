@@ -3,24 +3,24 @@ using System.Threading;
 using System.Threading.Tasks;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Application.UseCases.Workflows;
+using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
-using Quartz;
 
 namespace AWE.Application.UseCases.Workflows.DeleteDefinition;
 
 public class DeleteDefinitionUseCase : IDeleteDefinitionUseCase
 {
     private readonly IWorkflowDefinitionRepository _definitionRepository;
-    private readonly ISchedulerFactory _schedulerFactory;
+    private readonly IWorkflowSchedulerSyncTaskRepository _schedulerSyncTaskRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public DeleteDefinitionUseCase(
         IWorkflowDefinitionRepository definitionRepository,
-        ISchedulerFactory schedulerFactory,
+        IWorkflowSchedulerSyncTaskRepository schedulerSyncTaskRepository,
         IUnitOfWork unitOfWork)
     {
         _definitionRepository = definitionRepository;
-        _schedulerFactory = schedulerFactory;
+        _schedulerSyncTaskRepository = schedulerSyncTaskRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -30,10 +30,8 @@ public class DeleteDefinitionUseCase : IDeleteDefinitionUseCase
         if (existing == null)
             return Result.Failure(Error.NotFound("DeleteDefinition.NotFound", "Workflow definition not found."));
 
-        var scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
-        await CronScheduleSyncHelper.DeleteAsync(scheduler, request.Id, cancellationToken);
-
         await _definitionRepository.DeleteDefinitionAsync(request.Id, cancellationToken);
+        await _schedulerSyncTaskRepository.EnqueueAsync(request.Id, WorkflowSchedulerSyncOperation.Delete, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success();

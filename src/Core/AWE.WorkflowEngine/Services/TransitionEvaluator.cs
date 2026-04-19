@@ -201,6 +201,13 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
                 continue;
             }
 
+            if (triggerSource == WorkflowTriggerSource.Cron
+                && !string.IsNullOrWhiteSpace(triggerRoutePath)
+                && !IsCronStepMatched(step, triggerRoutePath))
+            {
+                continue;
+            }
+
             var id = step.GetProperty("Id").GetString();
             if (!string.IsNullOrWhiteSpace(id))
             {
@@ -227,6 +234,18 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
 
         var stepRoutePath = routePathElement.GetString();
         return string.Equals(stepRoutePath, triggerRoutePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCronStepMatched(JsonElement step, string triggerStepId)
+    {
+        if (!TryGetPropertyIgnoreCase(step, "Id", out var idElement)
+            || idElement.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var stepId = idElement.GetString();
+        return string.Equals(stepId, triggerStepId, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement propertyValue)

@@ -1,9 +1,9 @@
 ﻿using AWE.Application.Abstractions.Persistence;
 using AWE.Application.UseCases.Workflows;
+using AWE.Domain.Enums;
 using AWE.Shared.Primitives;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Quartz;
 
 namespace AWE.Application.UseCases.Workflows.PublishDefinition;
 
@@ -17,25 +17,29 @@ public class PublishDefinitionUseCase : IPublishDefinitionUseCase
     private static readonly HashSet<string> TriggerTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "ManualTrigger",
+        "ManualTriggerPlugin",
         "WebhookTrigger",
+        "WebhookTriggerPlugin",
         "CronTrigger",
-        "ChatTrigger"
+        "CronTriggerPlugin",
+        "ChatTrigger",
+        "ChatTriggerPlugin"
     };
 
     private readonly IWorkflowDefinitionRepository _definitionRepository;
     private readonly IWebhookRouteRepository _webhookRouteRepository;
-    private readonly ISchedulerFactory _schedulerFactory;
+    private readonly IWorkflowSchedulerSyncTaskRepository _schedulerSyncTaskRepository;
     private readonly IUnitOfWork _unitOfWork;
 
     public PublishDefinitionUseCase(
         IWorkflowDefinitionRepository definitionRepository,
         IWebhookRouteRepository webhookRouteRepository,
-        ISchedulerFactory schedulerFactory,
+        IWorkflowSchedulerSyncTaskRepository schedulerSyncTaskRepository,
         IUnitOfWork unitOfWork)
     {
         _definitionRepository = definitionRepository;
         _webhookRouteRepository = webhookRouteRepository;
-        _schedulerFactory = schedulerFactory;
+        _schedulerSyncTaskRepository = schedulerSyncTaskRepository;
         _unitOfWork = unitOfWork;
     }
 
@@ -60,6 +64,13 @@ public class PublishDefinitionUseCase : IPublishDefinitionUseCase
             return Result.Failure<PublishDefinitionResponse>(topologyValidationError);
         }
 
+        var cronValidationMessage = CronScheduleSyncHelper.ValidateCronExpressions(definition.DefinitionJson);
+        if (!string.IsNullOrWhiteSpace(cronValidationMessage))
+        {
+            return Result.Failure<PublishDefinitionResponse>(
+                Error.Validation("Workflow.CronExpression.Invalid", cronValidationMessage));
+        }
+
         if (!definition.IsPublished)
         {
             definition.Publish();
@@ -67,8 +78,7 @@ public class PublishDefinitionUseCase : IPublishDefinitionUseCase
         }
 
         await WebhookRouteSyncHelper.SyncAsync(_webhookRouteRepository, definition.Id, definition.DefinitionJson, cancellationToken);
-        var scheduler = await _schedulerFactory.GetScheduler(cancellationToken);
-        await CronScheduleSyncHelper.SyncAsync(scheduler, definition.Id, definition.DefinitionJson, cancellationToken);
+        await _schedulerSyncTaskRepository.EnqueueAsync(definition.Id, WorkflowSchedulerSyncOperation.Publish, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result.Success(new PublishDefinitionResponse
@@ -218,7 +228,8 @@ public class PublishDefinitionUseCase : IPublishDefinitionUseCase
         foreach (var step in steps.EnumerateArray())
         {
             if (!TryGetStringProperty(step, "Type", out var stepType)
-                || !string.Equals(stepType, "WebhookTrigger", StringComparison.OrdinalIgnoreCase))
+                || (!string.Equals(stepType, "WebhookTrigger", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(stepType, "WebhookTriggerPlugin", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

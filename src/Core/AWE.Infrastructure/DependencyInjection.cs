@@ -84,6 +84,7 @@ public static class DependencyInjection
         services.AddScoped<IPluginPackageRepository, PluginPackageRepository>();
         services.AddScoped<IPluginVersionRepository, PluginVersionRepository>();
         services.AddScoped<IWorkflowScheduleRepository, WorkflowScheduleRepository>();
+        services.AddScoped<IWorkflowSchedulerSyncTaskRepository, WorkflowSchedulerSyncTaskRepository>();
         services.AddScoped<ISystemAuditLogRepository, SystemAuditLogRepository>();
         services.AddScoped<IApprovalTokenRepository, ApprovalTokenRepository>();
         services.AddScoped<IWebhookRouteRepository, WebhookRouteRepository>();
