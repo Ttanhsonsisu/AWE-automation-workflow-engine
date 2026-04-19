@@ -1,5 +1,9 @@
 ﻿# AWE - Automation Workflow Engine
 
+## Documentation
+
+- [Webhook Plugin (WebhookTrigger)](docs/webhook-plugin.md)
+
 # Start
 docker compose up -d
 
