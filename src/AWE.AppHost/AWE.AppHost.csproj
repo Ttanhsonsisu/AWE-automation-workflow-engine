@@ -9,6 +9,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.2.2" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="13.2.2" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="13.2.2" />
+    <PackageReference Include="Npgsql.OpenTelemetry" Version="10.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Presentation\AWE.ApiGateway\AWE.ApiGateway.csproj" />
     <ProjectReference Include="..\Workers\AWE.Worker\AWE.Worker.csproj" />
     <ProjectReference Include="..\Workers\AWE.Wokrer.Engine\AWE.Wokrer.Engine.csproj" />

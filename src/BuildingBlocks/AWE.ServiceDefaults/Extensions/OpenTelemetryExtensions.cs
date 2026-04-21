@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.Text;
 using AWE.ServiceDefaults.Consts;
+using AWE.Shared.Consts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -18,28 +20,44 @@ public static class OpenTelemetryExtensions
         builder.Logging.AddOpenTelemetry(logging =>
         {
             logging.IncludeFormattedMessage = true;
-            logging.IncludeScopes = true;
+            logging.IncludeScopes = true;    // quan trọng: đây là chỗ structured fields vào
+            logging.ParseStateValues = true;
+
+            //logging.AddOtlpExporter();
         });
 
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics =>
             {
-                metrics.AddAspNetCoreInstrumentation()
+                metrics
+                    .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddMeter("MassTransit")
+                    .AddRuntimeInstrumentation()    // GC, ThreadPool, memory
+                    .AddProcessInstrumentation();
+
+                //metrics.AddOtlpExporter();
             })
             .WithTracing(tracing =>
             {
-                tracing.AddSource(builder.Environment.ApplicationName)
+                tracing
+                    .AddSource(builder.Environment.ApplicationName)
+                    .AddSource("MassTransit")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(EndpointPath.HEALTH_ENDPOINT_PATH)
                             && !context.Request.Path.StartsWithSegments(EndpointPath.ALIVENESS_ENDPOINT_PATH)
                     )
-                    // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
-                    //.AddGrpcClientInstrumentation()
+                        // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
+                        //.AddGrpcClientInstrumentation()
+                        .AddEntityFrameworkCoreInstrumentation(o =>
+                        {
+                            o.SetDbStatementForText = true;
+                        })
                     .AddHttpClientInstrumentation();
+
+                //tracing.AddOtlpExporter();
             });
 
         builder.AddOpenTelemetryExporters();

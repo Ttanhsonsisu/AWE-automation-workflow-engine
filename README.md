@@ -3,6 +3,7 @@
 ## Documentation
 
 - [Webhook Plugin (WebhookTrigger)](docs/webhook-plugin.md)
+- [Redis Usage Guideline](docs/redis-usage-guideline.md)
 
 # Start
 docker compose up -d
