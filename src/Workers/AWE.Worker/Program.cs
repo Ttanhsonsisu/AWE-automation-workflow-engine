@@ -1,8 +1,11 @@
-﻿using AWE.Infrastructure;
+﻿using System.Text;
+using AWE.Infrastructure;
 using AWE.ServiceDefaults.Extensions;
 using AWE.Worker;
 using AWE.WorkflowEngine;
 using MassTransit;
+
+Console.OutputEncoding = Encoding.UTF8;
 
 var builder = Host.CreateApplicationBuilder(args);
 

@@ -1,5 +1,7 @@
 ﻿using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
+using System.Threading.RateLimiting;
 using AWE.ApiGateway.Consumers;
 using AWE.ApiGateway.Middlewares;
 using AWE.ApiGateway.Services;
@@ -14,7 +16,8 @@ using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
-using System.Threading.RateLimiting;
+
+Console.OutputEncoding = Encoding.UTF8;
 
 // ================================================================
 // Application bootstrap
