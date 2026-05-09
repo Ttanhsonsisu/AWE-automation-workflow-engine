@@ -65,7 +65,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateAudience = false, // Môi trường Dev có thể bỏ qua check Audience
-            NameClaimType = "preferred_username"
+            NameClaimType = "preferred_username",
+
+            ValidateIssuer = true,
+            ValidIssuers = new[]
+            {
+                builder.Configuration["Keycloak:Authority"],   // http://awe-keycloak:8080...
+                builder.Configuration["Keycloak:ValidIssuer"]  // file .env
+            }
         };
 
         // 2. BÍ KÍP MAP ROLE TỪ KEYCLOAK SANG CHUẨN .NET
