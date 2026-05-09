@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -8,6 +8,7 @@ using AWE.ApiGateway.Services;
 using AWE.Application;
 using AWE.Contracts.Messages;
 using AWE.Infrastructure;
+using AWE.Infrastructure.Persistence;
 using AWE.ServiceDefaults.Extensions;
 using AWE.Shared.Consts;
 using AWE.WorkflowEngine;
@@ -15,6 +16,7 @@ using AWE.WorkflowEngine.Services;
 using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 Console.OutputEncoding = Encoding.UTF8;
@@ -156,6 +158,32 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    var logger = services.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        logger.LogInformation(">> Đang kiểm tra và chạy Database Migrations...");
+
+        // Lấy DbContext của bạn (Thay 'AweDbContext' bằng tên class thật của bạn)
+        var dbContext = services.GetRequiredService<ApplicationDbContext>();
+
+        // Lệnh này sẽ tự động tạo bảng nếu chưa có, hoặc chạy các script cập nhật mới
+        dbContext.Database.Migrate();
+
+        logger.LogInformation(">> Database Migrations hoàn tất thành công!");
+    }
+    catch (Exception ex)
+    {
+        logger.LogCritical(ex, ">> LỖI NGHIÊM TRỌNG: Không thể chạy Migration cho Database.");
+        // Bắn lỗi ra ngoài để Container sập. 
+        // Docker Compose (với restart: unless-stopped) sẽ tự động khởi động lại container sau vài giây để thử lại.
+        throw;
+    }
+}
 
 // Map default infrastructure endpoints (health, metrics, etc.)
 app.MapDefaultEndpoints();
