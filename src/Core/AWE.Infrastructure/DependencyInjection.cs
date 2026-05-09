@@ -1,4 +1,4 @@
-﻿using AWE.Application.Abstractions.Persistence;
+using AWE.Application.Abstractions.Persistence;
 using AWE.Application.Abstractions.Validation;
 using AWE.Application.Services;
 using AWE.Infrastructure.ConfigOptions;
@@ -61,9 +61,13 @@ public static class DependencyInjection
                 npgsqlOptions.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName);
                 npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 3);
                 npgsqlOptions.CommandTimeout(30);
+                npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", "public");
             })
             // Add the interceptor to the DbContext
             .AddInterceptors(interceptor);
+
+            options.ConfigureWarnings(warnings =>
+        warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 
             // Enable sensitive data logging in dev 
             if (configuration.GetValue<bool>("DetailedErrors"))
@@ -72,6 +76,7 @@ public static class DependencyInjection
                 options.EnableDetailedErrors();
             }
 
+            options.UseSnakeCaseNamingConvention();
         });
 
         // Repository
