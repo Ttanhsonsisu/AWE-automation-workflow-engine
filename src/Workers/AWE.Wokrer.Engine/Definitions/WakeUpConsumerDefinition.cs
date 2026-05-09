@@ -1,4 +1,4 @@
-﻿using AWE.Infrastructure.Persistence;
+using AWE.Infrastructure.Persistence;
 using AWE.Shared.Consts;
 using AWE.Wokrer.Engine.Consumers;
 using MassTransit;

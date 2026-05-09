@@ -54,7 +54,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:latest
     container_name: awe-keycloak
-    command: start-dev
+    command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
@@ -62,8 +62,14 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
     ports:
-      - "${KEYCLOAK_PORT:-8081}:8080" 
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./keycloak-init:/opt/keycloak/data/import:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -166,73 +172,147 @@ services:
       echo 'SETUP COMPLETED SUCCESSFULLY!'
       "
 
+  # ASPIRE DASHBOARD "
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13
+    container_name: awe-aspire-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_UI_PORT:-19888}:18888" 
+      - "${DASHBOARD_OTLP_PORT:-19889}:18889"
+    environment:
+      # Tắt yêu cầu nhập token/password để lúc bảo vệ đồ án mở lên cho nhanh
+      # - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=false
+      
+      # --- 1. BẢO MẬT UI BẰNG KEYCLOAK (SSO) ---
+      - Dashboard__Frontend__AuthMode=OpenIdConnect
+      - Dashboard__Frontend__OpenIdConnect__Authority=${OIDC_AUTHORITY}
+      - Dashboard__Frontend__OpenIdConnect__ClientId=${OIDC_CLIENT_ID}
+      - Dashboard__Frontend__OpenIdConnect__ClientSecret=${OIDC_CLIENT_SECRET}
+      - Dashboard__Frontend__OpenIdConnect__RequireHttpsMetadata=false # Chấp nhận HTTP cho self-host
+      
+      # --- 2. BẢO MẬT ĐƯỜNG ỐNG LOG BẰNG API KEY ---
+      - Dashboard__Otlp__AuthMode=ApiKey
+      - Dashboard__Otlp__PrimaryApiKey=${DASHBOARD_OTLP_TOKEN}
+
+      # --- 3. BẢO VỆ RAM TRÁNH CRASH SERVER ---
+      - Dashboard__TelemetryLimits__MaxLogCount=10000
+      - Dashboard__TelemetryLimits__MaxTraceCount=10000
+      - Dashboard__TelemetryLimits__MaxMetricsCount=50000
+    networks:
+      - awe-network
+    depends_on:
+      # Chờ Keycloak khởi động xong để lấy cấu hình SSO
+      - keycloak
+
+  # WORKER ENGINE
+  worker-engine:
+    build:
+      context: .
+      dockerfile: src/Workers/AWE.Wokrer.Engine/Dockerfile
+    container_name: awe-worker-engine
+    restart: unless-stopped
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+
+      # RabbitMQ
+      RABBITMQ__HOST: ${RABBITMQ_HOST}
+      RABBITMQ__PORT: ${RABBITMQ_PORT}
+      RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+
+      # MassTransit
+      MT__RETRY_COUNT: ${MT_RETRY_COUNT}
+      MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
+      MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
+      MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+
+      # App
+      WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
+      WORKFLOW_ENGINE_INSTANCE_ID: worker-engine-01
+
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+    networks:
+      - awe-network
 
   # API GATEWAY
-  # api-gateway:
-  #   image: awe/api-gateway:latest
-  #   container_name: awe-api-gateway
-  #   restart: unless-stopped
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/Presentation/AWE.ApiGateway/Dockerfile
+    container_name: awe-api-gateway
+    restart: unless-stopped
 
-  #   environment:
-  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
 
-  #     RabbitMQ (MassTransit)
-  #     RABBITMQ__HOST: ${RABBITMQ_HOST}
-  #     RABBITMQ__PORT: ${RABBITMQ_PORT}
-  #     RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
-  #     RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
-  #     RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+      # RabbitMQ (MassTransit)
+      RABBITMQ__HOST: ${RABBITMQ_HOST}
+      RABBITMQ__PORT: ${RABBITMQ_PORT}
+      RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ__VHOST: ${RABBITMQ_VHOST}
 
-  #     MassTransit tuning
-  #     MT__RETRY_COUNT: ${MT_RETRY_COUNT}
-  #     MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
-  #     MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
-  #     MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+      # MassTransit tuning
+      MT__RETRY_COUNT: ${MT_RETRY_COUNT}
+      MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
+      MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
+      MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
 
-  #     App
-  #     WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
-  #     WORKFLOW_ENGINE_INSTANCE_ID: api-gateway
+      # App
+      WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
+      WORKFLOW_ENGINE_INSTANCE_ID: api-gateway
 
-  #   ports:
-  #     - "${API_GATEWAY_HTTP_PORT}:8080"
+    ports:
+      - "${API_GATEWAY_HTTP_PORT}:8080"
+      - "${API_GATEWAY_HTTPS_PORT}:8443"
 
-  #   depends_on:
-  #     rabbitmq:
-  #       condition: service_healthy
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-  #   networks:
-  #     - awe-network
+    networks:
+      - awe-network
 
 
   # WORKER
-  # worker:
-  #   image: awe/worker:latest
-  #   container_name: awe-worker
-  #   restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: src/Workers/AWE.Worker/Dockerfile
+    container_name: awe-worker
+    restart: unless-stopped
 
-  #   environment:
-  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
 
-  #     RabbitMQ
-  #     RABBITMQ__HOST: ${RABBITMQ_HOST}
-  #     RABBITMQ__PORT: ${RABBITMQ_PORT}
-  #     RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
-  #     RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
-  #     RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+      # RabbitMQ
+      RABBITMQ__HOST: ${RABBITMQ_HOST}
+      RABBITMQ__PORT: ${RABBITMQ_PORT}
+      RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ__VHOST: ${RABBITMQ_VHOST}
 
-  #     MassTransit
-  #     MT__RETRY_COUNT: ${MT_RETRY_COUNT}
-  #     MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
-  #     MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
-  #     MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+      # MassTransit
+      MT__RETRY_COUNT: ${MT_RETRY_COUNT}
+      MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
+      MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
+      MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
 
-  #     App
-  #     WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
-  #     WORKFLOW_ENGINE_INSTANCE_ID: worker-01
+      # App
+      WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
+      WORKFLOW_ENGINE_INSTANCE_ID: worker-01
 
-  #   depends_on:
-  #     rabbitmq:
-  #       condition: service_healthy
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-  #   networks:
-  #     - awe-network
+    networks:
+      - awe-network
+

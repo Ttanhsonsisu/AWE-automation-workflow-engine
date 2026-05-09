@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -52,9 +52,13 @@ builder.Services.AddScoped<IWebhookIngressService, WebhookIngressService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // URL Realm của Keycloak (Lấy từ biến môi trường hoặc fix cứng khi Dev)
-        options.Authority = "http://localhost:8081/realms/awe-auth/";
-        options.RequireHttpsMetadata = false; // Tắt bắt buộc HTTPS ở môi trường Dev
+        // Keycloak Authority — reads from config so it works in any environment.
+        // Set via appsettings.json "Keycloak:Authority" or environment variable
+        // Keycloak__Authority (Docker Compose / .env).
+        // Default falls back to localhost for local development (npm run / dotnet run).
+        options.Authority = builder.Configuration["Keycloak:Authority"]
+            ?? "http://localhost:8081/realms/awe-auth/";
+        options.RequireHttpsMetadata = false; // Disable for HTTP self-host (set true when HTTPS is configured)
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
