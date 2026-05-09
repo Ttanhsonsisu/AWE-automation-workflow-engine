@@ -14,6 +14,7 @@
     <File Path="init-dbs.sh" />
     <File Path="LICENSE" />
     <File Path="README.md" />
+    <File Path="keycloak-init/realm-export.json" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/AWE.AppHost/AWE.AppHost.csproj" />
