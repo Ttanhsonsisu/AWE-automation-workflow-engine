@@ -1,8 +1,9 @@
-﻿FROM mcr.microsoft.com/dotnet/runtime:10.0 AS base
+﻿FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+
 COPY ["src/Workers/AWE.Worker/AWE.Worker.csproj", "src/Workers/AWE.Worker/"]
 COPY ["src/Core/AWE.Application/AWE.Application.csproj", "src/Core/AWE.Application/"]
 COPY ["src/Core/AWE.Domain/AWE.Domain.csproj", "src/Core/AWE.Domain/"]
