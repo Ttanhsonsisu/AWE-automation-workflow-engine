@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.HttpOverrides;
 
 Console.OutputEncoding = Encoding.UTF8;
 
@@ -30,6 +31,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Register common service defaults (logging, health checks, etc.)
 builder.AddServiceDefaults();
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 builder.Services.AddMemoryCache();
 builder.Services.AddRateLimiter(options =>
@@ -199,6 +207,8 @@ app.MapDefaultEndpoints();
 // ------------------------------------------------------------
 // HTTP request pipeline
 // ------------------------------------------------------------
+
+app.UseForwardedHeaders();
 
 if (app.Environment.IsDevelopment())
 {
