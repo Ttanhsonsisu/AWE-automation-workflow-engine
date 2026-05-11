@@ -1,6 +1,4 @@
-﻿version: "3.9"
-
-name: awe-platform
+﻿name: awe-platform-dev
 
 networks:
   awe-network:
@@ -14,9 +12,20 @@ volumes:
 
 services:
 
+  # cloudflare-tunnel:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: awe-cloudflare-tunnel
+  #   restart: unless-stopped
+  #   command: tunnel run
+  #   environment:
+  #     - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+  #   networks:
+  #     - awe-network
+
   #MINI IO
   minio:
     image: minio/minio:latest
+    # container_name: awe-minio-dev
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -26,10 +35,12 @@ services:
       - "${MINIO_MANAGEMENT_PORT}:9001"
     volumes:
       - minio-data:/data 
+    networks:
+      - awe-network
   # DATABASE POSTGRESQL
   postgres:
       image: postgres:${POSTGRES_IMAGE_TAG}
-      container_name: awe-postgres
+      container_name: awe-postgres-dev
       restart: always
       ports:
         - "${POSTGRES_PORT}:5432"
@@ -53,8 +64,8 @@ services:
   # ----------------------------------------
   keycloak:
     image: quay.io/keycloak/keycloak:latest
-    container_name: awe-keycloak
-    command: start-dev --import-realm
+    container_name: awe-keycloak-dev
+    command: start-dev --import-realm --metrics-enabled=true
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
@@ -62,10 +73,11 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      KC_HOSTNAME: localhost
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      KC_PROXY: "edge"     
+      KC_PROXY_HEADERS: "xforwarded"
     ports:
       - "${KEYCLOAK_PORT:-8081}:8080"
     volumes:
@@ -79,7 +91,7 @@ services:
   # REDIS
   redis:
     image: redis:${REDIS_IMAGE_TAG}
-    container_name: awe-redis
+    container_name: awe-redis-dev
     restart: always
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -97,7 +109,7 @@ services:
   # REDIS INSIGHT (GUI)
   redisinsight:
     image: redis/redisinsight:latest
-    container_name: awe-redisinsight
+    container_name: awe-redisinsight-dev
     restart: unless-stopped
     ports:
       - "${REDISINSIGHT_PORT:-5540}:5540"
@@ -110,7 +122,7 @@ services:
   # RABBITMQ   
   rabbitmq:
     image: rabbitmq:${RABBITMQ_IMAGE_TAG}
-    container_name: awe-rabbitmq
+    container_name: awe-rabbitmq-dev
     hostname: rabbitmq
     restart: unless-stopped
 
@@ -138,7 +150,7 @@ services:
   # SETUP WORKER 
   rabbitmq-setup:
     image: curlimages/curl
-    container_name: awe-rabbitmq-setup
+    container_name: awe-rabbitmq-setup-dev
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -172,147 +184,215 @@ services:
       echo 'SETUP COMPLETED SUCCESSFULLY!'
       "
 
-  # ASPIRE DASHBOARD "
-  aspire-dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:13
-    container_name: awe-aspire-dashboard
-    restart: unless-stopped
-    ports:
-      - "${DASHBOARD_UI_PORT:-19888}:18888" 
-      - "${DASHBOARD_OTLP_PORT:-19889}:18889"
+  # POSTGRES EXPORTER (Cho Metrics Database)
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter
+    container_name: awe-postgres-exporter-dev
     environment:
-      # Tắt yêu cầu nhập token/password để lúc bảo vệ đồ án mở lên cho nhanh
-      # - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
-      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=false
-      
-      # --- 1. BẢO MẬT UI BẰNG KEYCLOAK (SSO) ---
-      - Dashboard__Frontend__AuthMode=OpenIdConnect
-      - Dashboard__Frontend__OpenIdConnect__Authority=${OIDC_AUTHORITY}
-      - Dashboard__Frontend__OpenIdConnect__ClientId=${OIDC_CLIENT_ID}
-      - Dashboard__Frontend__OpenIdConnect__ClientSecret=${OIDC_CLIENT_SECRET}
-      - Dashboard__Frontend__OpenIdConnect__RequireHttpsMetadata=false # Chấp nhận HTTP cho self-host
-      
-      # --- 2. BẢO MẬT ĐƯỜNG ỐNG LOG BẰNG API KEY ---
-      - Dashboard__Otlp__AuthMode=ApiKey
-      - Dashboard__Otlp__PrimaryApiKey=${DASHBOARD_OTLP_TOKEN}
-
-      # --- 3. BẢO VỆ RAM TRÁNH CRASH SERVER ---
-      - Dashboard__TelemetryLimits__MaxLogCount=10000
-      - Dashboard__TelemetryLimits__MaxTraceCount=10000
-      - Dashboard__TelemetryLimits__MaxMetricsCount=50000
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/awe_db?sslmode=disable"
     networks:
       - awe-network
     depends_on:
-      # Chờ Keycloak khởi động xong để lấy cấu hình SSO
-      - keycloak
+      postgres:
+        condition: service_healthy
+
+  # OTEL COLLECTOR (Bộ thu gom dữ liệu tập trung)
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:latest
+  #   container_name: awe-otel-collector
+  #   command: ["--config=/etc/otel-collector-config.yaml"]
+  #   volumes:
+  #     - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+  #   environment:
+  #     - DASHBOARD_OTLP_TOKEN=${DASHBOARD_OTLP_TOKEN}
+  #   networks:
+  #     - awe-network
+  #   depends_on:
+  #     - aspire-dashboard
+
+  # ASPIRE DASHBOARD
+  # aspire-dashboard:
+  #   image: mcr.microsoft.com/dotnet/aspire-dashboard:13
+  #   container_name: awe-aspire-dashboard
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${DASHBOARD_UI_PORT:-19888}:18888"
+  #     - "${DASHBOARD_OTLP_PORT:-19889}:18889"
+  #     - "${DASHBOARD_OTLP_HTTP_PORT:-19890}:18890"
+  #   environment:
+  #     - Dashboard__Frontend__AuthMode=Unsecured
+  #     # --- 3. Cấu hình OTLP ---
+  #     - Dashboard__Otlp__AuthMode=ApiKey
+  #     - Dashboard__Otlp__PrimaryApiKey=${DASHBOARD_OTLP_TOKEN}
+  #   networks:
+  #     - awe-network
+  #   depends_on:
+  #     - keycloak
 
   # WORKER ENGINE
-  worker-engine:
-    build:
-      context: .
-      dockerfile: src/Workers/AWE.Wokrer.Engine/Dockerfile
-    container_name: awe-worker-engine
-    restart: unless-stopped
+  # Pulls pre-built image from GHCR — no local source required for self-host
+  # worker-engine:
+  #   image: ${IMAGE_REGISTRY}/awe-engine-worker:${IMAGE_TAG:-latest}
+  #   container_name: awe-engine-worker
+  #   restart: unless-stopped
 
-    environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+  #   environment:
+  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+      
+  #     # ── Observability / OpenTelemetry ─────────────────────────────────────
+  #     OTEL_EXPORTER_OTLP_ENDPOINT: http://awe-aspire-dashboard:18889
+  #     OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${DASHBOARD_OTLP_TOKEN}
+  #     OTEL_SERVICE_NAME: awe-worker-engine
 
-      # RabbitMQ
-      RABBITMQ__HOST: ${RABBITMQ_HOST}
-      RABBITMQ__PORT: ${RABBITMQ_PORT}
-      RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
-      RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
-      RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+  #     # ── RabbitMQ ──────────────────────────────────────────────────────────
+  #     # Key format: Section__Property maps to appsettings: { "RabbitMq": { "Host": ... } }
+  #     RabbitMq__Host: ${RABBITMQ_HOST}
+  #     RabbitMq__Port: ${RABBITMQ_PORT}
+  #     RabbitMq__VirtualHost: ${RABBITMQ_VHOST}
+  #     RabbitMq__Username: ${RABBITMQ_USERNAME}
+  #     RabbitMq__Password: ${RABBITMQ_PASSWORD}
+  #     RabbitMq__PrefetchCount: ${MT_PREFETCH_COUNT:-16}
 
-      # MassTransit
-      MT__RETRY_COUNT: ${MT_RETRY_COUNT}
-      MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
-      MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
-      MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+  #     # ── Database ──────────────────────────────────────────────────────────
+  #     ConnectionStrings__postgres: Host=awe-postgres;Port=5432;Database=awe_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+  #     ConnectionStrings__Redis: awe-redis:6379,password=${REDIS_PASSWORD},abortConnect=false
 
-      # App
-      WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
-      WORKFLOW_ENGINE_INSTANCE_ID: worker-engine-01
+  #     # ── MinIO ─────────────────────────────────────────────────────────────
+  #     Minio__Endpoint: ${MINIO_ENDPOINT:-minio:9000}
+  #     Minio__AccessKey: ${MINIO_ROOT_USER}
+  #     Minio__SecretKey: ${MINIO_ROOT_PASSWORD}
+  #     Minio__BucketName: awe-plugins
+  #     Minio__UseSSL: "false"
 
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+  #     # ── Telegram Alerts (optional) ────────────────────────────────────────
+  #     TelegramNotificationConfig__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+  #     TelegramNotificationConfig__ChatID: ${TELEGRAM_CHAT_ID:-}
 
-    networks:
-      - awe-network
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
 
-  # API GATEWAY
-  api-gateway:
-    build:
-      context: .
-      dockerfile: src/Presentation/AWE.ApiGateway/Dockerfile
-    container_name: awe-api-gateway
-    restart: unless-stopped
+  #   networks:
+  #     - awe-network
 
-    environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+  # # API GATEWAY
+  # api-gateway:
+  #   image: ${IMAGE_REGISTRY}/awe-api-gateway:${IMAGE_TAG:-latest}
+  #   container_name: awe-api-gateway
+  #   restart: unless-stopped
 
-      # RabbitMQ (MassTransit)
-      RABBITMQ__HOST: ${RABBITMQ_HOST}
-      RABBITMQ__PORT: ${RABBITMQ_PORT}
-      RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
-      RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
-      RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+  #   environment:
+  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
 
-      # MassTransit tuning
-      MT__RETRY_COUNT: ${MT_RETRY_COUNT}
-      MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
-      MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
-      MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+  #     # ── Observability / OpenTelemetry ─────────────────────────────────────
+  #     OTEL_EXPORTER_OTLP_ENDPOINT: http://awe-aspire-dashboard:18889
+  #     OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${DASHBOARD_OTLP_TOKEN}
+  #     OTEL_SERVICE_NAME: awe-api-gateway
 
-      # App
-      WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
-      WORKFLOW_ENGINE_INSTANCE_ID: api-gateway
+  #     # ── RabbitMQ ──────────────────────────────────────────────────────────
+  #     RabbitMq__Host: ${RABBITMQ_HOST}
+  #     RabbitMq__Port: ${RABBITMQ_PORT}
+  #     RabbitMq__VirtualHost: ${RABBITMQ_VHOST}
+  #     RabbitMq__Username: ${RABBITMQ_USERNAME}
+  #     RabbitMq__Password: ${RABBITMQ_PASSWORD}
+  #     RabbitMq__PrefetchCount: ${MT_PREFETCH_COUNT:-16}
 
-    ports:
-      - "${API_GATEWAY_HTTP_PORT}:8080"
-      - "${API_GATEWAY_HTTPS_PORT}:8443"
+  #     # ── Database ──────────────────────────────────────────────────────────
+  #     ConnectionStrings__postgres: Host=awe-postgres;Port=5432;Database=awe_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+  #     ConnectionStrings__Redis: awe-redis:6379,password=${REDIS_PASSWORD},abortConnect=false
 
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+  #     # ── MinIO ─────────────────────────────────────────────────────────────
+  #     Minio__Endpoint: ${MINIO_ENDPOINT:-awe-minio:9000}
+  #     Minio__AccessKey: ${MINIO_ROOT_USER}
+  #     Minio__SecretKey: ${MINIO_ROOT_PASSWORD}
+  #     Minio__BucketName: awe-plugins
+  #     Minio__UseSSL: "false"
 
-    networks:
-      - awe-network
+  #     # ── Keycloak (internal DNS — JWT validation is server-side) ───────────
+  #     Keycloak__Authority: ${KEYCLOAK_INTERNAL_AUTHORITY:-http://awe-keycloak:8080/realms/awe-auth}
+  #     Keycloak__ValidIssuer: ${OIDC_AUTHORITY}
+  #     # ── Telegram Alerts (optional) ────────────────────────────────────────
+  #     TelegramNotificationConfig__BotToken: ${TELEGRAM_BOT_TOKEN:-}
+  #     TelegramNotificationConfig__ChatID: ${TELEGRAM_CHAT_ID:-}
+
+  #   ports:
+  #     - "${API_GATEWAY_HTTP_PORT}:8080"
+  #     - "${API_GATEWAY_HTTPS_PORT}:8443"
+
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
+
+  #   networks:
+  #     - awe-network
 
 
-  # WORKER
-  worker:
-    build:
-      context: .
-      dockerfile: src/Workers/AWE.Worker/Dockerfile
-    container_name: awe-worker
-    restart: unless-stopped
+  # # PLUGIN WORKER
+  # worker:
+  #   image: ${IMAGE_REGISTRY}/awe-plugin-worker:${IMAGE_TAG:-latest}
+  #   container_name: awe-plugin-worker
+  #   restart: unless-stopped
 
-    environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+  #   environment:
+  #     ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
 
-      # RabbitMQ
-      RABBITMQ__HOST: ${RABBITMQ_HOST}
-      RABBITMQ__PORT: ${RABBITMQ_PORT}
-      RABBITMQ__USERNAME: ${RABBITMQ_USERNAME}
-      RABBITMQ__PASSWORD: ${RABBITMQ_PASSWORD}
-      RABBITMQ__VHOST: ${RABBITMQ_VHOST}
+  #     # ── Observability / OpenTelemetry ─────────────────────────────────────
+  #     OTEL_EXPORTER_OTLP_ENDPOINT: http://awe-aspire-dashboard:18889
+  #     OTEL_EXPORTER_OTLP_HEADERS: x-otlp-api-key=${DASHBOARD_OTLP_TOKEN}
+  #     OTEL_SERVICE_NAME: awe-plugin-worker
 
-      # MassTransit
-      MT__RETRY_COUNT: ${MT_RETRY_COUNT}
-      MT__RETRY_INTERVAL_SECONDS: ${MT_RETRY_INTERVAL_SECONDS}
-      MT__PREFETCH_COUNT: ${MT_PREFETCH_COUNT}
-      MT__CONCURRENT_MESSAGE_LIMIT: ${MT_CONCURRENT_MESSAGE_LIMIT}
+  #     # ── RabbitMQ ──────────────────────────────────────────────────────────
+  #     RabbitMq__Host: ${RABBITMQ_HOST}
+  #     RabbitMq__Port: ${RABBITMQ_PORT}
+  #     RabbitMq__VirtualHost: ${RABBITMQ_VHOST}
+  #     RabbitMq__Username: ${RABBITMQ_USERNAME}
+  #     RabbitMq__Password: ${RABBITMQ_PASSWORD}
+  #     RabbitMq__PrefetchCount: 1
 
-      # App
-      WORKFLOW_ENGINE_NAME: ${WORKFLOW_ENGINE_NAME}
-      WORKFLOW_ENGINE_INSTANCE_ID: worker-01
+  #     # ── Database ──────────────────────────────────────────────────────────
+  #     ConnectionStrings__postgres: Host=awe-postgres;Port=5432;Database=awe_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+  #     ConnectionStrings__Redis: awe-redis:6379,password=${REDIS_PASSWORD},abortConnect=false
 
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+  #     # ── MinIO (plugin storage) ──────────────────────────────────────────
+  #     Minio__Endpoint: ${MINIO_ENDPOINT:-awe-minio:9000}
+  #     Minio__AccessKey: ${MINIO_ROOT_USER}
+  #     Minio__SecretKey: ${MINIO_ROOT_PASSWORD}
+  #     Minio__BucketName: awe-plugins
+  #     Minio__UseSSL: "false"
 
-    networks:
-      - awe-network
+  #   depends_on:
+  #     rabbitmq:
+  #       condition: service_healthy
 
+  #   networks:
+  #     - awe-network
+
+  # # FRONTEND
+  # frontend:
+  #   image: ${IMAGE_REGISTRY}/awe-frontend:${IMAGE_TAG:-latest}
+  #   container_name: awe-frontend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${FRONTEND_PORT:-80}:80"
+  #   # Runtime config injection — entrypoint.sh reads these env vars at startup
+  #   # and generates /usr/share/nginx/html/config.js via envsubst.
+  #   # The React bundle is built generically (no VITE_* baked in),
+  #   # so changing these values only requires a container restart — no rebuild.
+  #   environment:
+  #     API_URL: ${FRONTEND_API_URL:-/api}
+  #     SIGNALR_URL: ${FRONTEND_SIGNALR_URL:-/hubs/workflow}
+  #     OIDC_AUTHORITY: ${OIDC_AUTHORITY}
+  #     OIDC_CLIENT_ID: ${OIDC_FE_CLIENT_ID:-awe-fe}
+  #     OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost/}
+  #     OIDC_POST_LOGOUT_REDIRECT_URI: ${OIDC_POST_LOGOUT_REDIRECT_URI:-http://localhost/}
+  #     OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email roles}
+  #   depends_on:
+  #     - api-gateway
+  #   networks:
+  #     - awe-network
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-qO-", "http://localhost/"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     start_period: 10s
+  #     retries: 3
