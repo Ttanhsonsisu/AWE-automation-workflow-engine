@@ -1,0 +1,52 @@
+{
+  "Name": "EXP-04 Crash Recovery",
+  "Description": "Crash-recovery workflow using a long-running DynamicDll plugin. Replace ExecutionMetadata after uploading the experiment plugin.",
+  "DefinitionJson": {
+    "Steps": [
+      {
+        "Id": "manual",
+        "Type": "ManualTrigger",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {}
+      },
+      {
+        "Id": "sleep",
+        "Type": "AWE.Experiments.Sleep",
+        "ExecutionMode": "DynamicDll",
+        "IsConfigured": true,
+        "ExecutionMetadata": {
+          "PluginType": "AWE.Plugins.Experiments.SleepPlugin",
+          "Bucket": "awe-plugins",
+          "ObjectKey": "plugins/awe-experiments-sleep/REPLACE_WITH_SHA256.dll",
+          "Sha256": "REPLACE_WITH_SHA256"
+        },
+        "Inputs": {
+          "Seconds": 180,
+          "Message": "Hold lease long enough to stop one worker during execution."
+        }
+      },
+      {
+        "Id": "log-recovered",
+        "Type": "Log",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {
+          "Msg": "Crash recovery finished after sleep={{steps.sleep.output.Seconds}} seconds"
+        }
+      }
+    ],
+    "Transitions": [
+      {
+        "Id": "manual-to-sleep",
+        "Source": "manual",
+        "Target": "sleep"
+      },
+      {
+        "Id": "sleep-to-log",
+        "Source": "sleep",
+        "Target": "log-recovered"
+      }
+    ]
+  }
+}

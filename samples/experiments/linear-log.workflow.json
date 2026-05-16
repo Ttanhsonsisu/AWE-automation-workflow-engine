@@ -1,0 +1,31 @@
+{
+  "Name": "EXP-01 Linear Log Smoke",
+  "Description": "Smoke-test workflow: ManualTrigger -> Log.",
+  "DefinitionJson": {
+    "Steps": [
+      {
+        "Id": "manual",
+        "Type": "ManualTrigger",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {}
+      },
+      {
+        "Id": "log",
+        "Type": "Log",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {
+          "Msg": "EXP-01 message={{workflow.input.message}}"
+        }
+      }
+    ],
+    "Transitions": [
+      {
+        "Id": "manual-to-log",
+        "Source": "manual",
+        "Target": "log"
+      }
+    ]
+  }
+}
