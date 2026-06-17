@@ -171,6 +171,8 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 // 1. NHÁNH SUSPEND: Plugin yêu cầu chờ (Approval / Payment)
                 _logger.LogInformation("[{Worker}] Step {Node} SUSPENDED. Reason: {Msg}", _workerId, cmd.NodeId, pluginResult.Message);
 
+                await _uow.SaveChangesAsync();
+
                 // Bắn lệnh về cho Core Engine để nó đổi trạng thái Database thành WaitingForEvent
                 await context.Publish(new SuspendStepCommand(
                     InstanceId: cmd.InstanceId,
@@ -187,14 +189,14 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                     NodeId: cmd.NodeId,
                     WorkerId: Environment.MachineName
                 ));
-
-                await _uow.SaveChangesAsync();
             }
             else if (pluginResult.IsSuccess)
             {
                 // logic success, complete step
                 var outputDoc = JsonSerializer.SerializeToDocument(pluginResult.Outputs);
                 pointer.Complete(_workerId, outputDoc);
+
+                await _uow.SaveChangesAsync();
 
                 var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}completed";
                 await context.Publish(new StepCompletedEvent(
@@ -213,8 +215,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                     WorkerId: Environment.MachineName,
                     MetadataJson: JsonSerializer.Serialize(outputDoc)
                 ));
-
-                await _uow.SaveChangesAsync();
             }
             else
             {
@@ -261,7 +261,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
                 MetadataJson: JsonSerializer.Serialize(new { Exception = ex.ToString(), Retryable = false })
             ));
             await HandleFailureAsync(pointer, cmd, ex.Message, context);
-            throw new NonRetryableException(ex.Message, ex);
         }
         finally
         {
@@ -284,7 +283,7 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
     {
         var errorDoc = JsonSerializer.SerializeToDocument(new { Error = errorMsg });
         pointer.MarkAsFailed(_workerId, errorDoc);
-        //await _uow.SaveChangesAsync();
+        await _uow.SaveChangesAsync();
 
         var routingKey = $"{MessagingConstants.PatternEvent.TrimEnd('#')}failed";
         await context.Publish(new StepFailedEvent(
@@ -294,8 +293,6 @@ public class PluginConsumer : IConsumer<ExecutePluginCommand>
             ErrorMessage: errorMsg,
             FailedAt: DateTime.UtcNow
         ), ctx => ctx.SetRoutingKey(routingKey));
-
-        await _uow.SaveChangesAsync();
     }
 
     // Logic Heartbeat Loop

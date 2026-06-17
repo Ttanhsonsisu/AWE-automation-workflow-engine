@@ -6,7 +6,7 @@ Các artifact đã chuẩn bị trong source code:
 
 | Artifact | Đường dẫn | Mục đích |
 | --- | --- | --- |
-| Unit test project | `test/AWE.WorkflowEngine.Tests` | Kiểm thử thuật toán Join, Branch, Token/Lease. |
+| Unit test project | `test/AWE.WorkflowEngine.Tests` | Kiểm thử thuật toán Join, Branch/Trigger, Token/Lease và Variable Resolution. |
 | Workflow mẫu | `samples/experiments` | Dữ liệu workflow dùng cho smoke test, branch-join, retry và crash recovery. |
 | K6 script | `experiments/k6/submit-workflow.js` | Sinh tải bằng cách submit workflow qua API Gateway. |
 | Crash plugin | `test/plugin-crash-sleep` | Dynamic DLL chạy lâu để mô phỏng worker bị ngắt khi đang xử lý node. |
@@ -151,9 +151,10 @@ Unit test tập trung vào các thuật toán có ảnh hưởng trực tiếp �
 
 | Nhóm | Lớp kiểm thử | Ý nghĩa |
 | --- | --- | --- |
-| Token và Leasing | `ExecutionPointer` | Kiểm tra vòng đời pointer, acquire lease, lease conflict, retry count, suspended pointer. |
-| Branch | `TransitionEvaluator` | Kiểm tra tìm start node, đánh giá điều kiện, fail-safe khi thiếu biến và đếm incoming edges. |
-| Join | `JoinBarrierService` | Kiểm tra barrier chỉ mở khi đủ nhánh, chống dispatch trùng và xử lý dead-path. |
+| Token và Leasing | `ExecutionPointer` | Kiểm tra vòng đời pointer, acquire lease, lease conflict, zombie takeover, retry count, suspended pointer, delay wake-up và skipped pointer. |
+| Variable Resolution | `VariableResolver` | Kiểm tra nội suy biến từ workflow input, step output, metadata hệ thống, giữ đúng kiểu JSON và phát hiện biến thiếu. |
+| Branch và Trigger | `TransitionEvaluator` | Kiểm tra tìm start node, lọc Manual/Webhook/Cron trigger, đánh giá điều kiện, fail-safe khi thiếu biến hoặc expression lỗi, đếm incoming edges. |
+| Join | `JoinBarrierService` | Kiểm tra barrier chỉ mở khi đủ nhánh, chống dispatch trùng, xử lý mixed skipped/pending branch và dead-path. |
 
 Các test Join dùng fake repository và fake distributed lock để giữ đúng tính chất unit test, không phụ thuộc PostgreSQL, RabbitMQ hoặc Redis.
 
@@ -163,17 +164,31 @@ Các test Join dùng fake repository và fake distributed lock để giữ đún
 | --- | --- | --- | --- |
 | UT-EP-01 | ExecutionPointer | Acquire lease khi pointer đang `Pending`. | Pointer chuyển sang `Running`, có `LeasedBy`, `LeasedUntil`. |
 | UT-EP-02 | ExecutionPointer | Worker khác chiếm lại lease khi pointer `Running` đã hết hạn. | Acquire thành công, `LeasedBy` đổi, `RetryCount` tăng. |
-| UT-EP-03 | ExecutionPointer | Complete pointer bằng worker không sở hữu lease. | Ném lỗi lease conflict, pointer vẫn `Running`. |
-| UT-EP-04 | ExecutionPointer | Complete pointer bằng đúng worker sở hữu lease. | Pointer `Completed`, `Active=false`, lease được xóa. |
-| UT-EP-05 | ExecutionPointer | Reset pointer đang chạy về `Pending`. | Pointer `Pending`, lease được xóa, `RetryCount` tăng. |
-| UT-EP-06 | ExecutionPointer | Resume pointer đang `Suspended`. | Pointer chuyển sang `Completed`, `ResumeAt=null`. |
+| UT-EP-03 | ExecutionPointer | Worker khác cố acquire pointer `Running` khi lease còn hạn. | Acquire thất bại, `LeasedBy` không đổi, `RetryCount` không tăng. |
+| UT-EP-04 | ExecutionPointer | Complete pointer bằng worker không sở hữu lease. | Ném lỗi lease conflict, pointer vẫn `Running`. |
+| UT-EP-05 | ExecutionPointer | Complete pointer bằng đúng worker sở hữu lease. | Pointer `Completed`, `Active=false`, lease được xóa. |
+| UT-EP-06 | ExecutionPointer | Reset pointer đang chạy về `Pending`. | Pointer `Pending`, lease được xóa, `RetryCount` tăng. |
+| UT-EP-07 | ExecutionPointer | Reset pointer đã `Completed`. | Ném lỗi, pointer giữ trạng thái terminal. |
+| UT-EP-08 | ExecutionPointer | Resume pointer đang `Suspended` vì webhook/approval. | Pointer chuyển sang `Completed`, `ResumeAt=null`. |
+| UT-EP-09 | ExecutionPointer | Wake-up pointer delay đang `Suspended`. | Pointer chuyển về `Pending`, `ResumeAt=null`. |
+| UT-EP-10 | ExecutionPointer | Skip pointer thuộc dead-path. | Pointer `Skipped`, inactive, lease được xóa. |
+| UT-VR-01 | VariableResolver | Resolve payload có `workflow.input`, `steps.<id>.output` và `workflow.system`. | Payload JSON hợp lệ, string/number/bool/object giữ đúng kiểu. |
+| UT-VR-02 | VariableResolver | Resolve payload thiếu biến. | Trả failure, giữ payload gốc, liệt kê biến thiếu. |
+| UT-VR-03 | VariableResolver | Resolve payload rỗng. | Trả thành công với `{}`. |
 | UT-TE-01 | TransitionEvaluator | Tìm start node theo `ManualTrigger`. | Trả về đúng node trigger thủ công. |
-| UT-TE-02 | TransitionEvaluator | Đánh giá các transition true/false/missing variable. | Điều kiện đúng trả true, sai hoặc thiếu biến trả false. |
-| UT-TE-03 | TransitionEvaluator | Đếm incoming edges vào Join. | Số cạnh vào Join đúng với definition. |
+| UT-TE-02 | TransitionEvaluator | Tìm webhook trigger theo `RoutePath`. | Chỉ trả webhook route khớp. |
+| UT-TE-03 | TransitionEvaluator | Tìm cron trigger theo step id. | Chỉ trả cron trigger khớp id. |
+| UT-TE-04 | TransitionEvaluator | Đánh giá các transition true/false/missing variable. | Điều kiện đúng trả true, sai hoặc thiếu biến trả false. |
+| UT-TE-05 | TransitionEvaluator | Transition không có condition. | Mặc định trả true. |
+| UT-TE-06 | TransitionEvaluator | Condition expression không hợp lệ. | Fail-safe trả false, engine không crash. |
+| UT-TE-07 | TransitionEvaluator | Đếm incoming edges vào Join. | Số cạnh vào Join đúng với definition. |
+| UT-TE-08 | TransitionEvaluator | Definition có nhiều start node độc lập. | Trả đủ danh sách start node. |
 | UT-JB-01 | JoinBarrierService | Chưa đủ nhánh đến Join. | Barrier chưa mở, không dispatch pointer. |
 | UT-JB-02 | JoinBarrierService | Đủ nhánh đến Join. | Barrier mở, chọn một pointer đại diện, pointer dư được đánh dấu `Completed`. |
 | UT-JB-03 | JoinBarrierService | Join đã từng dispatch trước đó. | Không dispatch trùng. |
 | UT-JB-04 | JoinBarrierService | Tất cả nhánh vào Join đều `Skipped`. | Barrier mở theo dead-path, không dispatch plugin Join. |
+| UT-JB-05 | JoinBarrierService | Một nhánh `Skipped`, một nhánh `Pending`. | Dispatch pointer `Pending`, không coi là dead-path toàn phần. |
+| UT-JB-06 | JoinBarrierService | Nhiều pointer `Pending` cùng đến Join. | Chỉ giữ một pointer đại diện, các pointer dư chuyển `Completed`. |
 
 ### 4.4. Tiêu chí đạt
 
@@ -186,7 +201,7 @@ Unit test được xem là đạt khi:
 Kết quả hiện tại:
 
 ```text
-Passed: 13/13
+Passed: 27/27
 ```
 
 ## 5. Kiểm thử chịu tải và hiệu năng
@@ -449,10 +464,11 @@ Tiêu chí đạt:
 
 | Nhóm test | Số test | Passed | Failed | Ghi chú |
 | --- | ---: | ---: | ---: | --- |
-| ExecutionPointer | 6 | 6 | 0 | Token, leasing, suspended pointer. |
-| TransitionEvaluator | 3 | 3 | 0 | Branch và incoming edges. |
-| JoinBarrierService | 4 | 4 | 0 | Join và dead-path. |
-| Tổng | 13 | 13 | 0 | Đã chạy bằng `dotnet test`. |
+| ExecutionPointer | 10 | 10 | 0 | Token, leasing, suspended pointer, delay wake-up, skipped pointer. |
+| VariableResolver | 3 | 3 | 0 | Resolve biến và strict missing-variable handling. |
+| TransitionEvaluator | 8 | 8 | 0 | Branch, trigger routing, condition fail-safe, incoming edges. |
+| JoinBarrierService | 6 | 6 | 0 | Join, duplicate dispatch, mixed branch, dead-path. |
+| Tổng | 27 | 27 | 0 | Đã chạy bằng `dotnet test`. |
 
 ### 7.2. Bảng kết quả load test
 

@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "plugin-crash-sleep/1.0.0": {
+        "dependencies": {
+          "AWE.Sdk": "1.0.0"
+        },
+        "runtime": {
+          "plugin-crash-sleep.dll": {}
+        }
+      },
+      "AWE.Sdk/1.0.0": {
+        "runtime": {
+          "AWE.Sdk.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "plugin-crash-sleep/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "AWE.Sdk/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

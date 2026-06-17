@@ -40,6 +40,7 @@ public class JoinBarrierServiceTests
         Assert.Equal(first.Id, result.PointerToDispatch?.Id);
         Assert.Equal(ExecutionPointerStatus.Pending, first.Status);
         Assert.Equal(ExecutionPointerStatus.Completed, second.Status);
+        Assert.False(second.Active);
     }
 
     [Fact]
@@ -79,6 +80,46 @@ public class JoinBarrierServiceTests
         Assert.True(result.IsBarrierBroken);
         Assert.True(result.IsDeadPath);
         Assert.Null(result.PointerToDispatch);
+    }
+
+    [Fact]
+    public async Task EvaluateBarrierAsync_WhenSkippedAndPendingBranchesArrive_DispatchesPendingBranch()
+    {
+        var instance = NewInstance();
+        var skipped = new ExecutionPointer(instance.Id, "join");
+        skipped.Skip();
+        var pending = new ExecutionPointer(instance.Id, "join");
+        var repo = new InMemoryExecutionPointerRepository(skipped, pending);
+        var sut = NewService(repo);
+
+        var result = await sut.EvaluateBarrierAsync(instance, "join", totalIncomingEdges: 2);
+
+        Assert.True(result.IsBarrierBroken);
+        Assert.False(result.IsDeadPath);
+        Assert.Equal(pending.Id, result.PointerToDispatch?.Id);
+        Assert.Equal(ExecutionPointerStatus.Pending, pending.Status);
+        Assert.Equal(ExecutionPointerStatus.Skipped, skipped.Status);
+    }
+
+    [Fact]
+    public async Task EvaluateBarrierAsync_WhenMultiplePendingBranchesArrive_CompletesOnlyRedundantPendingPointers()
+    {
+        var instance = NewInstance();
+        var first = new ExecutionPointer(instance.Id, "join");
+        var second = new ExecutionPointer(instance.Id, "join");
+        var third = new ExecutionPointer(instance.Id, "join");
+        var repo = new InMemoryExecutionPointerRepository(first, second, third);
+        var sut = NewService(repo);
+
+        var result = await sut.EvaluateBarrierAsync(instance, "join", totalIncomingEdges: 3);
+
+        Assert.True(result.IsBarrierBroken);
+        Assert.Equal(first.Id, result.PointerToDispatch?.Id);
+        Assert.Equal(ExecutionPointerStatus.Pending, first.Status);
+        Assert.Equal(ExecutionPointerStatus.Completed, second.Status);
+        Assert.Equal(ExecutionPointerStatus.Completed, third.Status);
+        Assert.False(second.Active);
+        Assert.False(third.Active);
     }
 
     private static JoinBarrierService NewService(InMemoryExecutionPointerRepository repo) =>

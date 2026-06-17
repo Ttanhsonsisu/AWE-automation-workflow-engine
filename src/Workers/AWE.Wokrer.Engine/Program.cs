@@ -48,6 +48,17 @@ var host = builder.Build();
 
 // Write log Worker
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
+try
+{
+    logger.LogInformation("Checking and applying database migrations...");
+    await host.Services.InitializeDatabaseAsync();
+}
+catch (Exception ex)
+{
+    logger.LogCritical(ex, "Unable to initialize database.");
+    throw;
+}
+
 logger.LogInformation("AWE Worker is STARTING...");
 
-host.Run();
+await host.RunAsync();

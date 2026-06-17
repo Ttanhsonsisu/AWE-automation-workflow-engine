@@ -35,6 +35,46 @@ public class TransitionEvaluatorTests
     }
 
     [Fact]
+    public void FindStartNodeIdsByTrigger_WhenWebhookRouteIsProvided_ReturnsOnlyMatchingWebhookTrigger()
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [
+            { "Id": "github", "Type": "WebhookTrigger", "Inputs": { "RoutePath": "/github" } },
+            { "Id": "stripe", "Type": "WebhookTrigger", "Inputs": { "RoutePath": "/stripe" } },
+            { "Id": "manual", "Type": "ManualTrigger" }
+          ],
+          "Transitions": []
+        }
+        """);
+
+        var starts = _sut.FindStartNodeIdsByTrigger(definition, WorkflowTriggerSource.Webhook, "/github");
+
+        var start = Assert.Single(starts);
+        Assert.Equal("github", start);
+    }
+
+    [Fact]
+    public void FindStartNodeIdsByTrigger_WhenCronStepIdIsProvided_ReturnsOnlyMatchingCronTrigger()
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [
+            { "Id": "nightly", "Type": "CronTrigger" },
+            { "Id": "hourly", "Type": "CronTrigger" },
+            { "Id": "manual", "Type": "ManualTrigger" }
+          ],
+          "Transitions": []
+        }
+        """);
+
+        var starts = _sut.FindStartNodeIdsByTrigger(definition, WorkflowTriggerSource.Cron, "hourly");
+
+        var start = Assert.Single(starts);
+        Assert.Equal("hourly", start);
+    }
+
+    [Fact]
     public void EvaluateTransitions_EvaluatesTrueFalseAndMissingVariableAsFalse()
     {
         using var definition = JsonDocument.Parse("""
@@ -69,6 +109,50 @@ public class TransitionEvaluatorTests
     }
 
     [Fact]
+    public void EvaluateTransitions_WhenTransitionHasNoCondition_DefaultsToTrue()
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [
+            { "Id": "manual", "Type": "ManualTrigger" },
+            { "Id": "log", "Type": "Log" }
+          ],
+          "Transitions": [
+            { "Id": "t1", "Source": "manual", "Target": "log" }
+          ]
+        }
+        """);
+        using var context = JsonDocument.Parse("""{"Inputs":{},"Steps":{},"Meta":{}}""");
+
+        var transition = Assert.Single(_sut.EvaluateTransitions(definition, "manual", context));
+
+        Assert.Equal("log", transition.TargetNodeId);
+        Assert.True(transition.IsConditionMet);
+    }
+
+    [Fact]
+    public void EvaluateTransitions_WhenConditionExpressionIsInvalid_ReturnsFalseFailSafe()
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [
+            { "Id": "manual", "Type": "ManualTrigger" },
+            { "Id": "bad", "Type": "Log" }
+          ],
+          "Transitions": [
+            { "Id": "t1", "Source": "manual", "Target": "bad", "Condition": "(()" }
+          ]
+        }
+        """);
+        using var context = JsonDocument.Parse("""{"Inputs":{},"Steps":{},"Meta":{}}""");
+
+        var transition = Assert.Single(_sut.EvaluateTransitions(definition, "manual", context));
+
+        Assert.Equal("bad", transition.TargetNodeId);
+        Assert.False(transition.IsConditionMet);
+    }
+
+    [Fact]
     public void GetIncomingEdgesCount_CountsAllTransitionsTargetingJoinNode()
     {
         using var definition = JsonDocument.Parse("""
@@ -91,5 +175,29 @@ public class TransitionEvaluatorTests
         Assert.Equal(2, count);
         Assert.True(_sut.IsJoinNode(definition, "join"));
         Assert.False(_sut.IsJoinNode(definition, "a"));
+    }
+
+    [Fact]
+    public void FindStartNodeIds_WhenDefinitionHasMultipleIndependentStartNodes_ReturnsAllStartNodes()
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [
+            { "Id": "manual", "Type": "ManualTrigger" },
+            { "Id": "webhook", "Type": "WebhookTrigger" },
+            { "Id": "log", "Type": "Log" }
+          ],
+          "Transitions": [
+            { "Id": "t1", "Source": "manual", "Target": "log" },
+            { "Id": "t2", "Source": "webhook", "Target": "log" }
+          ]
+        }
+        """);
+
+        var starts = _sut.FindStartNodeIds(definition);
+
+        Assert.Equal(2, starts.Count);
+        Assert.Contains("manual", starts);
+        Assert.Contains("webhook", starts);
     }
 }

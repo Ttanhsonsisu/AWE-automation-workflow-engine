@@ -34,7 +34,7 @@ public class UiNotificationConsumer :
         var msg = context.Message;
 
         // Đóng gói data siêu nhẹ
-        var updateMsg = new NodeStatusUpdateMessage(msg.StepId, msg.Status, msg.Timestamp);
+        var updateMsg = new NodeStatusUpdateMessage(msg.StepId, msg.Status, msg.Timestamp, msg.ErrorMessage);
 
         // Push qua SignalR cho các Client đang kết nối vào Gateway
         await _hubContext.Clients.Group(msg.InstanceId.ToString()).NodeStatusChanged(updateMsg);

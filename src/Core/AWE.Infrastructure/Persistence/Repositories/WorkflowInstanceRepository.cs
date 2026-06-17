@@ -43,7 +43,7 @@ public class WorkflowInstanceRepository(ApplicationDbContext _context) : IWorkfl
         CancellationToken cancellationToken = default)
     {
         return await _context.WorkflowInstances
-            .Include(x => x.ExecutionPointers.Where(p => p.Active))
+            .Include(x => x.ExecutionPointers)
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }

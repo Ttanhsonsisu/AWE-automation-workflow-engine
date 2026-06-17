@@ -84,16 +84,23 @@ dotnet test test\AWE.WorkflowEngine.Tests\AWE.WorkflowEngine.Tests.csproj
 Kết quả đúng sẽ có dạng:
 
 ```text
-Passed! - Failed: 0, Passed: 13, Skipped: 0, Total: 13
+Passed! - Failed: 0, Passed: 27, Skipped: 0, Total: 27
 ```
 
 ### 2.2. Unit test đang kiểm tra gì?
 
 | File test | Thành phần kiểm thử |
 | --- | --- |
-| `ExecutionPointerTests.cs` | Token, acquire lease, complete lease, retry count, suspended pointer. |
-| `TransitionEvaluatorTests.cs` | Branch condition, start node, incoming edge count. |
-| `JoinBarrierServiceTests.cs` | Join barrier, duplicate dispatch, dead-path. |
+| `ExecutionPointerTests.cs` | Token, acquire lease, lease conflict, zombie takeover, retry count, suspended pointer, delay wake-up, skipped pointer. |
+| `VariableResolverTests.cs` | Resolve biến từ workflow input, step output, system metadata; giữ đúng kiểu JSON; báo lỗi khi thiếu biến. |
+| `TransitionEvaluatorTests.cs` | Branch condition, Manual/Webhook/Cron trigger routing, start node, fail-safe expression, incoming edge count. |
+| `JoinBarrierServiceTests.cs` | Join barrier, duplicate dispatch, mixed skipped/pending branch, dead-path. |
+
+Danh sách test case chi tiết nằm tại:
+
+```text
+docs/experiments/unit-test-cases.md
+```
 
 ### 2.3. Khi test fail thì xem gì?
 

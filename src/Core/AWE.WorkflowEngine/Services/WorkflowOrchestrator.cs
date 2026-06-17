@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using AWE.Application.Abstractions.CoreEngine;
 using AWE.Application.Abstractions.Persistence;
@@ -464,6 +464,34 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             pointer.MarkAsRouted();
             await _uow.SaveChangesAsync();
 
+            if (pendingCommandsToPublish.Count == 0)
+            {
+                var activePointers = await _pointerRepo.GetActivePointersByInstanceAsync(instance.Id);
+                if (!activePointers.Any(p => p.Id != pointer.Id))
+                {
+                    instance.Complete();
+                    _logger.LogInformation("Workflow {Id} Completed successfully after routing produced no runnable commands.", instanceId);
+
+                    await _instanceRepo.UpdateInstanceAsync(instance);
+                    await _uow.SaveChangesAsync();
+
+                    await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                        InstanceId: instance.Id,
+                        Status: "Completed",
+                        Timestamp: DateTime.UtcNow));
+
+                    await _publishEndpoint.Publish(new WriteAuditLogCommand(
+                        InstanceId: instance.Id,
+                        Event: "WorkflowCompleted",
+                        Message: "Quy trình đã hoàn thành sau khi xử lý các nhánh điều kiện.",
+                        Level: Domain.Enums.LogLevel.Information,
+                        NodeId: "System"
+                    ));
+
+                    return Result.Success();
+                }
+            }
+
             // 7. BÂY GIỜ MỚI KÍCH HOẠT MASSTRANSIT PUBLISH
             latestStatus = await _instanceRepo.GetInstanceStatusAsync(instance.Id);
             if (latestStatus == WorkflowInstanceStatus.Suspended)
@@ -578,12 +606,18 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             }
             else
             {
-                _logger.LogError("Step {StepId} failed permanently. Triggering Compensation.", pointer.StepId);
+                var compensationEnabled = IsCompensationEnabled(stepDef);
+                _logger.LogError(
+                    "Step {StepId} failed permanently. CompensationEnabled={CompensationEnabled}.",
+                    pointer.StepId,
+                    compensationEnabled);
 
                 await _publishEndpoint.Publish(new WriteAuditLogCommand(
                     InstanceId: instanceId,
                     Event: "WorkflowFailed",
-                    Message: $"Node {pointer.StepId} đã thất bại vĩnh viễn sau {maxRetries} lần thử. Đang kích hoạt Rollback.",
+                    Message: compensationEnabled
+                        ? $"Node {pointer.StepId} đã thất bại vĩnh viễn sau {maxRetries} lần thử. Đang kích hoạt Rollback."
+                        : $"Node {pointer.StepId} đã thất bại vĩnh viễn sau {maxRetries} lần thử.",
                     Level: Domain.Enums.LogLevel.Error,
                     ExecutionPointerId: pointerId,
                     NodeId: pointer.StepId,
@@ -592,18 +626,32 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
                 // Đánh dấu Node và Workflow Failed
                 //pointer.MarkAsFailed("Engine", errorDoc);
                 pointer.MarkAsRouted();
-                instance.Status = WorkflowInstanceStatus.Compensating;
                 _contextManager.MergeStepOutput(instance, pointer.StepId, errorDoc);
 
-                // call SERVICE XỬ LÝ SAGA
-                compensateCommandsToPublish = await _compensationService.TriggerCompensationAsync(instance, def!.DefinitionJson);
-
-                if (compensateCommandsToPublish.Any())
+                if (compensationEnabled)
                 {
-                    await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
-                        InstanceId: instanceId,
-                        Status: "Compensating",
-                        Timestamp: DateTime.UtcNow));
+                    instance.Status = WorkflowInstanceStatus.Compensating;
+
+                    // call SERVICE XỬ LÝ SAGA
+                    compensateCommandsToPublish = await _compensationService.TriggerCompensationAsync(instance, def!.DefinitionJson);
+
+                    if (compensateCommandsToPublish.Any())
+                    {
+                        await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                            InstanceId: instanceId,
+                            Status: "Compensating",
+                            Timestamp: DateTime.UtcNow));
+                    }
+                    else
+                    {
+                        instance.Fail();
+                        instance.EndTime = DateTime.UtcNow;
+
+                        await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+                            InstanceId: instanceId,
+                            Status: "Failed",
+                            Timestamp: DateTime.UtcNow));
+                    }
                 }
                 else
                 {
@@ -650,6 +698,42 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         }
     }
 
+    private static bool IsCompensationEnabled(JsonElement stepDef)
+    {
+        return TryGetBoolean(stepDef, "EnableCompensation", out var enableCompensation) && enableCompensation
+            || TryGetBoolean(stepDef, "CompensationEnabled", out var compensationEnabled) && compensationEnabled;
+    }
+
+    private static bool TryGetBoolean(JsonElement element, string propertyName, out bool value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.True || property.Value.ValueKind == JsonValueKind.False)
+                {
+                    value = property.Value.GetBoolean();
+                    return true;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.String
+                    && bool.TryParse(property.Value.GetString(), out var parsed))
+                {
+                    value = parsed;
+                    return true;
+                }
+            }
+        }
+
+        value = false;
+        return false;
+    }
+
     public async Task<Result> ResumeStepAsync(Guid pointerId, JsonDocument resumeData)
     {
         _logger.LogInformation("⏰ Attempting to RESUME Pointer {PointerId}...", pointerId);
@@ -679,9 +763,10 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         if (instance.Status == WorkflowInstanceStatus.Suspended)
         {
-            _logger.LogInformation("Workflow {Id} is suspended. Wake-up for pointer {PointerId} will not switch status to Running.",
+            _logger.LogInformation("Workflow {Id} is suspended. Wake-up for pointer {PointerId} will switch status to Running.",
                 instance.Id,
                 pointer.Id);
+            instance.Resume();
         }
 
         // =================================================================
@@ -693,8 +778,24 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         // Cập nhật state Context Data của toàn bộ Workflow bằng hàm xịn bạn vừa viết
         _contextManager.MergeStepOutput(instance, pointer.StepId, resumeData);
 
-        // Hãy để hàm HandleStepCompletionAsync tính toán Node tiếp theo rồi Save 1 lần duy nhất
-        // Như vậy hệ thống mới đảm bảo tính Atomic .
+        // Persist the wake-up state before routing. HandleStepCompletionAsync checks the
+        // latest workflow status with AsNoTracking, so the database must already be Running.
+        await _pointerRepo.UpdatePointerAsync(pointer);
+        await _instanceRepo.UpdateInstanceAsync(instance);
+        await _uow.SaveChangesAsync();
+
+        // Báo cho UI biết Node này đã hoàn thành (Completed) và Workflow đang chạy (Running)
+        await _publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+            InstanceId: instance.Id,
+            StepId: pointer.StepId,
+            Status: "Completed",
+            Timestamp: DateTime.UtcNow));
+
+        await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+            InstanceId: instance.Id,
+            Status: "Running",
+            Timestamp: DateTime.UtcNow));
+
         // Tái sử dụng logic điều hướng chuẩn của Engine
         return await HandleStepCompletionAsync(instance.Id, pointer.Id, resumeData);
     }
@@ -769,6 +870,12 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
 
         skippedPointer.Skip();
         await _pointerRepo.AddPointerAsync(skippedPointer);
+
+        await _publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+            InstanceId: instance.Id,
+            StepId: targetStepId,
+            Status: "Skipped",
+            Timestamp: DateTime.UtcNow));
 
         if (_evaluator.IsJoinNode(definitionJson, targetStepId))
         {
@@ -869,6 +976,18 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
             instance.Suspend();
 
         _logger.LogInformation("Workflow {InstanceId} SUSPENDED at Step {StepId}. Reason: {Reason}", instanceId, pointer.StepId, reason);
+
+        // Báo cho UI biết Node và Workflow chuyển sang trạng thái Suspended
+        await _publishEndpoint.Publish(new UiNodeStatusChangedEvent(
+            InstanceId: instance.Id,
+            StepId: pointer.StepId,
+            Status: "Suspended",
+            Timestamp: DateTime.UtcNow));
+
+        await _publishEndpoint.Publish(new UiWorkflowStatusChangedEvent(
+            InstanceId: instance.Id,
+            Status: "Suspended",
+            Timestamp: DateTime.UtcNow));
 
         // Lưu trạng thái xuống DB
         await _instanceRepo.UpdateInstanceAsync(instance);

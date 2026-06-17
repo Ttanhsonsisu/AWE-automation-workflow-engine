@@ -6,7 +6,7 @@ Tài liệu này mô tả cách hoạt động và cấu hình `WebhookTrigger` 
 
 `WebhookTrigger` cho phép workflow được khởi chạy từ HTTP webhook thông qua API Gateway.
 
-- Endpoint mới (route động): `POST /api/webhooks/catch/{routePath}`
+- Endpoint mới (route động): `POST /api/webhooks/catch/{**routePath}`
 - Endpoint cũ vẫn giữ để tương thích ngược: `POST /api/webhooks/trigger/{definitionId}`
 
 ## 2) Cấu hình trong Workflow Definition
@@ -59,7 +59,7 @@ Các trường hợp bị trả `400 BadRequest`:
 
 ## 4) Luồng xử lý tại API Gateway
 
-Khi gọi `POST /api/webhooks/catch/{routePath}`:
+Khi gọi `POST /api/webhooks/catch/{**routePath}`:
 
 1. Tìm route đang active theo `routePath`.
 2. Verify chữ ký (nếu có `SecretToken`).

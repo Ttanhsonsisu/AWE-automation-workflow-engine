@@ -1,19 +1,105 @@
-﻿using System.Text.Json;
 using AWE.Application.Abstractions.Persistence;
 using AWE.Application.Services;
-using AWE.Domain.Entities; 
+using AWE.Domain.Entities;
+using AWE.Application.ConfigOptions;
 using AWE.Sdk.v2;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace AWE.WorkflowEngine.BuiltInPlugins;
 
+/// <summary>
+/// Input của node Approval.
+/// Toàn bộ cấu hình — bao gồm SMTP — đều configurable trực tiếp trong workflow node.
+/// Hỗ trợ biến động: {{workflow.input.xxx}}, {{steps.xxx.Output.yyy}}.
+/// </summary>
 public class ApprovalInput
 {
+    // ── Notification channels ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Danh sách kênh gửi thông báo. Giá trị hợp lệ: "Email", "Telegram".
+    /// Nếu rỗng và ApproverEmail không rỗng → tự động gửi Email.
+    /// </summary>
     public List<string>? Channels { get; set; }
+
+    /// <summary>Email của người cần phê duyệt (giảng viên, quản lý, ...).</summary>
     public string? ApproverEmail { get; set; }
+
+    /// <summary>Chat ID Telegram của người cần phê duyệt.</summary>
     public string? TelegramChatId { get; set; }
+
+    // ── Notification content ──────────────────────────────────────────────────
+
+    /// <summary>Tiêu đề thông báo / email subject.</summary>
     public string? Title { get; set; }
+
+    /// <summary>
+    /// Nội dung chi tiết cho người phê duyệt.
+    /// Có thể dùng biến: {{steps.write_back_results.Output.Summary}}
+    /// </summary>
     public string? Message { get; set; }
+
+    // ── Approval API URL ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// URL công khai của API Gateway — dùng để build link phê duyệt trong email.
+    ///   Local dev:  http://localhost:8080
+    ///   Self-host:  https://your-domain.com
+    /// Link cuối: {ApiBaseUrl}/api/v1/approvals/submit?token={token}
+    /// Có thể dùng biến: {{workflow.input.apiBaseUrl}}
+    /// </summary>
+    public string? ApiBaseUrl { get; set; }
+
+    /// <summary>Số ngày token còn hiệu lực. Mặc định 3 ngày.</summary>
+    public int TokenExpiryDays { get; set; } = 3;
+
+    // ── SMTP config (node-level — ưu tiên hơn appsettings) ───────────────────
+
+    /// <summary>
+    /// SMTP server host.
+    /// Ví dụ: smtp.gmail.com, smtp.mailgun.org, sandbox.smtp.mailtrap.io
+    /// Nếu rỗng → dùng SmtpEmail:Host trong appsettings.
+    /// </summary>
+    public string? SmtpHost { get; set; }
+
+    /// <summary>
+    /// SMTP port. Thông thường: 587 (STARTTLS), 465 (SSL), 25 (plain).
+    /// Nếu 0 → dùng SmtpEmail:Port trong appsettings (default 587).
+    /// </summary>
+    public int SmtpPort { get; set; } = 0;
+
+    /// <summary>
+    /// SMTP username / email đăng nhập.
+    /// Gmail: địa chỉ Gmail. Mailtrap: username được cấp.
+    /// Có thể dùng biến bí mật: {{workflow.input.smtpUsername}}
+    /// </summary>
+    public string? SmtpUsername { get; set; }
+
+    /// <summary>
+    /// SMTP password / App Password.
+    /// Gmail: bật 2FA → tạo App Password tại https://myaccount.google.com/apppasswords
+    /// Có thể dùng biến bí mật: {{workflow.input.smtpPassword}}
+    /// </summary>
+    public string? SmtpPassword { get; set; }
+
+    /// <summary>
+    /// Tên hiển thị của người gửi email.
+    /// Ví dụ: "AWE Workflow System", "Hệ thống xét duyệt ĐATN"
+    /// </summary>
+    public string? SmtpFromName { get; set; }
+
+    /// <summary>
+    /// Địa chỉ email người gửi.
+    /// Phải trùng với tài khoản SMTP hoặc được authorize (SPF/DKIM).
+    /// </summary>
+    public string? SmtpFromAddress { get; set; }
+
+    /// <summary>
+    /// Bật STARTTLS (true) hoặc kết nối plain (false). Mặc định: true.
+    /// Gmail và hầu hết providers yêu cầu true với port 587.
+    /// </summary>
+    public bool SmtpUseSsl { get; set; } = true;
 }
 
 public class ApprovalOutput
@@ -28,118 +114,150 @@ public class ApprovalPlugin : IWorkflowPlugin
     private readonly IApprovalTokenRepository _tokenRepo;
     private readonly ILogger<ApprovalPlugin> _logger;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ITelegramNotificationService _testSend;
-
-    //private readonly IEmailNotificationService _emailService;
+    private readonly IEmailNotificationService _emailService;
     private readonly ITelegramNotificationService _telegramService;
+    private readonly SmtpEmailConfig _fallbackSmtp;
 
     public ApprovalPlugin(
         IApprovalTokenRepository tokenRepo,
         ILogger<ApprovalPlugin> logger,
-        //IEmailNotificationService emailService,
+        IEmailNotificationService emailService,
         ITelegramNotificationService telegramService,
         IUnitOfWork unitOfWork,
-        ITelegramNotificationService testSend)
+        IOptions<SmtpEmailConfig> fallbackSmtpOptions)
     {
-        _tokenRepo = tokenRepo;
-        _logger = logger;
-        //_emailService = emailService;
+        _tokenRepo       = tokenRepo;
+        _logger          = logger;
+        _emailService    = emailService;
         _telegramService = telegramService;
-        _unitOfWork = unitOfWork;
-        _testSend = testSend;
+        _unitOfWork      = unitOfWork;
+        _fallbackSmtp    = fallbackSmtpOptions.Value;
     }
 
-    // ========================================================
-    // 1. METADATA & SCHEMA
-    // ========================================================
+    // =========================================================================
+    // METADATA & SCHEMA
+    // =========================================================================
 
-    public string Name => "Approval";
+    public string Name        => "Approval";
     public string DisplayName => "Phê duyệt (Human Task)";
     public string Description => "Gửi yêu cầu phê duyệt qua Email/Telegram và tạm dừng quy trình để chờ phản hồi.";
-    public string Category => "Human Interaction";
-    public string Icon => "UserCheck";
+    public string Category    => "Human Interaction";
+    public string Icon        => "UserCheck";
 
-    public Type? InputType => typeof(ApprovalInput);
+    public Type? InputType  => typeof(ApprovalInput);
     public Type? OutputType => typeof(ApprovalOutput);
 
-    // ========================================================
-    // 2. LOGIC THỰC THI CHÍNH (EXECUTE)
-    // ========================================================
+    // =========================================================================
+    // EXECUTE
+    // =========================================================================
 
     public async Task<PluginResult> ExecuteAsync(PluginContext context)
     {
-        // LƯU Ý: Engine/Worker khi gọi Plugin này PHẢI nhét "PointerId" vào JsonPayload
+        // Engine/Worker nhét "PointerId" vào context trước khi gọi plugin
         var pointerIdStr = context.Get<string>("PointerId");
         if (!Guid.TryParse(pointerIdStr, out var pointerId))
-        {
             return PluginResult.Failure("Hệ thống lỗi: Không tìm thấy PointerId để tạo Token phê duyệt.");
-        }
-
-        // Lấy thông tin cấu hình mà người dùng nhập từ giao diện (đã resolve biến {{...}})
-        //var inputs = context.GetRaw("inputData");
-        //if (inputs.ValueKind != JsonValueKind.Object)
-        //{
-        //    return PluginResult.Failure("Cấu hình Inputs không hợp lệ.");
-        //}
 
         try
         {
-            // 1. Tạo Token bảo mật lưu xuống DB
+            // ── 1. Đọc inputs từ node config (engine đã resolve biến {{...}}) ──
+
+            var title         = context.Get<string>("Title")          ?? "Yêu cầu phê duyệt";
+            var message       = context.Get<string>("Message")         ?? string.Empty;
+            var approverEmail = context.Get<string>("ApproverEmail")   ?? string.Empty;
+            var telegramChat  = context.Get<string>("TelegramChatId")  ?? string.Empty;
+            var channels      = context.Get<List<string>>("Channels")  ?? new List<string>();
+            var expiryDays    = context.Get<int>("TokenExpiryDays");
+            if (expiryDays <= 0) expiryDays = 3;
+
+            // ── 2. Build Approval URL từ node input ──
+            var apiBaseUrl  = (context.Get<string>("ApiBaseUrl") ?? "http://localhost:8080").TrimEnd('/');
             var tokenString = Guid.NewGuid().ToString("N");
+            var approvalUrl = $"{apiBaseUrl}/api/v1/approvals/submit?token={tokenString}";
+
+            // ── 3. Build SMTP config từ node input (fallback về appsettings) ──
+            var nodeSmtp = new SmtpEmailConfig
+            {
+                Host        = context.Get<string>("SmtpHost")        ?? string.Empty,
+                Port        = context.Get<int>("SmtpPort"),
+                Username    = context.Get<string>("SmtpUsername")    ?? string.Empty,
+                Password    = context.Get<string>("SmtpPassword")    ?? string.Empty,
+                FromName    = context.Get<string>("SmtpFromName")    ?? string.Empty,
+                FromAddress = context.Get<string>("SmtpFromAddress") ?? string.Empty,
+                UseSsl      = context.Get<bool?>("SmtpUseSsl") ?? true,
+            };
+
+            // ── 4. Tạo Token bảo mật, lưu DB ──
             var token = new ApprovalToken
             {
-                Id = Guid.NewGuid(),
-                PointerId = pointerId,
+                Id          = Guid.NewGuid(),
+                PointerId   = pointerId,
                 TokenString = tokenString,
-                ExpiredAt = DateTime.UtcNow.AddDays(3) // Hạn duyệt 3 ngày (có thể lấy từ UI)
+                ExpiredAt   = DateTime.UtcNow.AddDays(expiryDays)
             };
             await _tokenRepo.CreateToken(token);
             await _unitOfWork.SaveChangesAsync();
 
-            // Chuẩn bị thông tin thông báo
-            var title = context.Get<string>("Title") ?? "Yêu cầu phê duyệt";
-            var message = context.Get<string>("Message") ?? "";
-            // testing 
-            var approvalUrl = $"https://app.awe.com/approve?token={tokenString}";
+            _logger.LogInformation(
+                "[APPROVAL] Token tạo thành công. Pointer={PointerId}, URL={Url}",
+                pointerId, approvalUrl);
 
+            // ── 5. Xác định kênh gửi ──
+            // Fallback: nếu channels rỗng nhưng có email → gửi Email
+            bool sendEmail    = channels.Contains("Email",    StringComparer.OrdinalIgnoreCase)
+                             || (channels.Count == 0 && !string.IsNullOrWhiteSpace(approverEmail));
+            bool sendTelegram = channels.Contains("Telegram", StringComparer.OrdinalIgnoreCase);
 
-            var channels = context.Get<List<string>>("Channels") ?? new List<string>();
-
-            // send message
-            if (channels.Contains("Email"))
+            // ── 6. Gửi Email ──
+            if (sendEmail)
             {
-                string email = context.Get<string>("ApproverEmail") ?? "";
-                if (!string.IsNullOrWhiteSpace(email))
+                if (!string.IsNullOrWhiteSpace(approverEmail))
                 {
-                    // test
-                    await _testSend.SendAlertAsync(approvalUrl);
-                    _logger.LogInformation("[EMAIL] Đã gửi yêu cầu phê duyệt tới {Email}. Link: {Url}", email, approvalUrl);
+                    await _emailService.SendApprovalEmailAsync(
+                        smtpConfig:      nodeSmtp,
+                        toEmail:         approverEmail,
+                        subject:         title,
+                        approvalUrl:     approvalUrl,
+                        workflowTitle:   title,
+                        workflowMessage: message,
+                        expiryDays:      expiryDays,
+                        ct:              default);
+                }
+                else
+                {
+                    _logger.LogWarning("[EMAIL] Channel Email được chọn nhưng ApproverEmail rỗng. Bỏ qua.");
                 }
             }
 
-            if (channels.Contains("Telegram"))
+            // ── 7. Gửi Telegram ──
+            if (sendTelegram)
             {
-                string chatId = context.Get<string>("TelegramChatId") ?? "";
-                if (!string.IsNullOrWhiteSpace(chatId))
+                if (!string.IsNullOrWhiteSpace(telegramChat))
                 {
-                    await _testSend.SendAlertAsync(approvalUrl);
-                    _logger.LogInformation("[TELEGRAM] Đã gửi yêu cầu phê duyệt tới ChatId {ChatId}. Link: {Url}", chatId, approvalUrl);
+                    var telegramMsg = $"🔔 *{title}*\n\n{message}\n\n✅ Approval link:\n{approvalUrl}";
+                    await _telegramService.SendAlertAsync(telegramMsg);
+                    _logger.LogInformation(
+                        "[TELEGRAM] Gửi tới ChatId={ChatId}. URL={Url}", telegramChat, approvalUrl);
+                }
+                else
+                {
+                    _logger.LogWarning("[TELEGRAM] Channel Telegram được chọn nhưng TelegramChatId rỗng. Bỏ qua.");
                 }
             }
 
-
-            return PluginResult.Suspend($"Đã gửi thông báo. Mã Token: {tokenString}");
+            return PluginResult.Suspend(
+                $"Đã gửi thông báo. Token={tokenString}. URL={approvalUrl}");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi gửi yêu cầu phê duyệt.");
+            _logger.LogError(ex, "Lỗi khi xử lý yêu cầu phê duyệt.");
             return PluginResult.Failure($"Lỗi khi gửi thông báo phê duyệt: {ex.Message}");
         }
     }
 
-    // ========================================================
-    // 3. LOGIC ROLLBACK (COMPENSATE)
-    // ========================================================
+    // =========================================================================
+    // COMPENSATE (Rollback)
+    // =========================================================================
 
     public async Task<PluginResult> CompensateAsync(PluginContext context)
     {
@@ -151,11 +269,11 @@ public class ApprovalPlugin : IWorkflowPlugin
                 var token = await _tokenRepo.GetByPointerIdAsync(pointerId);
                 if (token != null && !token.IsUsed)
                 {
-                    token.ExpiredAt = DateTime.UtcNow; 
+                    token.ExpiredAt = DateTime.UtcNow;
                     await _tokenRepo.UpdateApprovalTokenAsync(token);
                     await _unitOfWork.SaveChangesAsync();
-
-                    _logger.LogInformation("Đã HỦY Approval Token cho Pointer {PointerId} do quy trình bị Rollback.", pointerId);
+                    _logger.LogInformation(
+                        "Đã HỦY Approval Token. Pointer={PointerId}", pointerId);
                 }
             }
             catch (Exception ex)
