@@ -1,0 +1,172 @@
+{
+    "metrics": {
+        "workflow_submit_errors": {
+            "fails": 127,
+            "passes": 0,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0
+        },
+        "vus_max": {
+            "value": 20,
+            "min": 20,
+            "max": 20
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 29.26433473333328,
+            "min": 1.2373,
+            "med": 3.59375,
+            "max": 1519.1966,
+            "p(90)": 28.47914000000012,
+            "p(95)": 123.86193999999998
+        },
+        "http_req_blocked": {
+            "min": 0,
+            "med": 0,
+            "max": 11.3446,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.1542085333333333
+        },
+        "http_req_tls_handshaking": {
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0
+        },
+        "checks": {
+            "passes": 254,
+            "fails": 0,
+            "value": 1
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 20
+        },
+        "iteration_duration": {
+            "min": 2716.5553,
+            "med": 10164.1096,
+            "max": 12199.3951,
+            "p(90)": 11178.705119999999,
+            "p(95)": 11197.5915,
+            "avg": 10005.41083543307
+        },
+        "data_sent": {
+            "count": 2281015,
+            "rate": 34026.16925772352
+        },
+        "workflow_completion_latency": {
+            "avg": 10005.385826771653,
+            "min": 2716,
+            "med": 10164,
+            "max": 12200,
+            "p(90)": 11179.2,
+            "p(95)": 11198.1
+        },
+        "iterations": {
+            "count": 127,
+            "rate": 1.894473949417644
+        },
+        "workflow_submit_latency": {
+            "p(95)": 1441.15107,
+            "avg": 270.6291094488189,
+            "min": 20.4038,
+            "med": 113.4566,
+            "max": 1519.1966,
+            "p(90)": 1162.6393200000005,
+            "thresholds": {
+                "p(95)<1000": true
+            }
+        },
+        "http_reqs": {
+            "count": 1500,
+            "rate": 22.37567656792493
+        },
+        "http_req_receiving": {
+            "max": 32.5921,
+            "p(90)": 0,
+            "p(95)": 0.51076,
+            "avg": 0.06528499999999998,
+            "min": 0,
+            "med": 0
+        },
+        "http_req_duration": {
+            "p(95)": 123.86193999999998,
+            "avg": 29.26433473333328,
+            "min": 1.2373,
+            "med": 3.59375,
+            "max": 1519.1966,
+            "p(90)": 28.47914000000012
+        },
+        "workflow_completed": {
+            "count": 127,
+            "rate": 1.894473949417644
+        },
+        "data_received": {
+            "count": 1231402,
+            "rate": 18368.968584730595
+        },
+        "http_req_connecting": {
+            "avg": 0.023573133333333333,
+            "min": 0,
+            "med": 0,
+            "max": 1.612,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_sending": {
+            "min": 0,
+            "med": 0,
+            "max": 0.5316,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.005098333333333334
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 1500,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0
+        },
+        "workflow_submitted": {
+            "count": 127,
+            "rate": 1.894473949417644
+        },
+        "http_req_waiting": {
+            "avg": 29.19395139999996,
+            "min": 1.2373,
+            "med": 3.5642,
+            "max": 1519.1966,
+            "p(90)": 27.359930000000155,
+            "p(95)": 123.7909
+        }
+    },
+    "root_group": {
+        "checks": {
+            "submit status is 200": {
+                "path": "::submit status is 200",
+                "id": "50e1b7af7b8c31aac09887eb1b2db222",
+                "passes": 127,
+                "fails": 0,
+                "name": "submit status is 200"
+            },
+            "submit has instance id": {
+                "name": "submit has instance id",
+                "path": "::submit has instance id",
+                "id": "29d16c80f8742ac05424e1f03c2681de",
+                "passes": 127,
+                "fails": 0
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {}
+    }
+}

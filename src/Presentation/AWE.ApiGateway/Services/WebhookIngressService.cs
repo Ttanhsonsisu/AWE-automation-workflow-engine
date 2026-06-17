@@ -23,6 +23,8 @@ public class WebhookIngressService(
         IHeaderDictionary headers,
         CancellationToken cancellationToken = default)
     {
+        routePath = NormalizeRoutePath(routePath);
+
         var route = await _dbContext.WebhookRoutes
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.RoutePath == routePath && x.IsActive, cancellationToken);
@@ -169,6 +171,16 @@ public class WebhookIngressService(
         }
 
         return true;
+    }
+
+    private static string NormalizeRoutePath(string routePath)
+    {
+        if (string.IsNullOrWhiteSpace(routePath))
+        {
+            return string.Empty;
+        }
+
+        return Uri.UnescapeDataString(routePath).Trim().Trim('/');
     }
 
     private readonly record struct IdempotencyKeyExtractionResult(bool IsValid, string? Value, string? ErrorMessage)

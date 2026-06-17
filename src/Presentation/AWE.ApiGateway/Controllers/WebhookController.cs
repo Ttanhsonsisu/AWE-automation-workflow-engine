@@ -117,10 +117,10 @@ public class WebhookController : ControllerBase
     /// <summary>
     /// API để hệ thống bên ngoài (Github, Stripe...) gọi vào để Start Workflow theo route động
     /// </summary>
-    [HttpPost("catch/{routePath}")]
+    [HttpPost("catch/{**routePath}")]
     [EnableRateLimiting("WebhookIngress")]
     [RequestSizeLimit(1_048_576)]
-    public async Task<IActionResult> CatchWebhook(string routePath, [FromBody] JsonElement payload, CancellationToken cancellationToken)
+    public async Task<IActionResult> CatchWebhook([FromRoute] string routePath, [FromBody] JsonElement payload, CancellationToken cancellationToken)
     {
         var result = await _webhookIngressService.HandleCatchAsync(routePath, payload, Request.Headers, cancellationToken);
 

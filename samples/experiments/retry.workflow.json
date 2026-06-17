@@ -1,0 +1,48 @@
+{
+  "Name": "EXP-03 Retry",
+  "Description": "Retry workflow: ManualTrigger -> RetryTest(MaxRetries=3) -> Log.",
+  "DefinitionJson": {
+    "Steps": [
+      {
+        "Id": "manual",
+        "Type": "ManualTrigger",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {}
+      },
+      {
+        "Id": "retry",
+        "Type": "RetryTest",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "MaxRetries": 3,
+        "Inputs": {
+          "FailTimes": 2,
+          "ErrorType": "Timeout",
+          "Message": "Simulated transient failure for experiment"
+        }
+      },
+      {
+        "Id": "log-success",
+        "Type": "Log",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {
+          "Msg": "Retry finished status={{steps.retry.output.Status}} attempt={{steps.retry.output.Attempt}}"
+        }
+      }
+    ],
+    "Transitions": [
+      {
+        "Id": "manual-to-retry",
+        "Source": "manual",
+        "Target": "retry"
+      },
+      {
+        "Id": "retry-to-log",
+        "Source": "retry",
+        "Target": "log-success"
+      }
+    ]
+  }
+}

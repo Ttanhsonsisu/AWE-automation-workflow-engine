@@ -171,9 +171,22 @@ public class ExecutionPointer : Entity
             throw new InvalidOperationException($"Cannot reset terminal state: {Status}");
 
         Status = ExecutionPointerStatus.Pending;
+        Active = true;
         LeasedUntil = null;
         LeasedBy = null;
         RetryCount++;
+    }
+
+    public void CompleteAsJoinDuplicate()
+    {
+        if (Status != ExecutionPointerStatus.Pending)
+            throw new InvalidOperationException($"Cannot complete join duplicate from status: {Status}");
+
+        Status = ExecutionPointerStatus.Completed;
+        Active = false;
+        LeasedUntil = null;
+        LeasedBy = null;
+        EndTime = DateTime.UtcNow;
     }
 
     public bool IsZombie()

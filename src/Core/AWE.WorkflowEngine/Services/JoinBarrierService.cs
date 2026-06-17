@@ -59,7 +59,7 @@ public class JoinBarrierService(
         // Dọn rác: Đánh dấu các pointer thừa thành Completed
         foreach (var p in joinPointers.Where(x => x.Id != pointerToDispatch?.Id && x.Status == ExecutionPointerStatus.Pending))
         {
-            p.Status = ExecutionPointerStatus.Completed;
+            p.CompleteAsJoinDuplicate();
         }
 
         return new JoinBarrierResult(true, false, pointerToDispatch);

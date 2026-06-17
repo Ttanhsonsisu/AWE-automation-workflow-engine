@@ -1,0 +1,78 @@
+{
+  "Name": "EXP-02 Branch Join",
+  "Description": "Branch workflow: ManualTrigger -> conditional branches -> Join -> Log.",
+  "DefinitionJson": {
+    "Steps": [
+      {
+        "Id": "manual",
+        "Type": "ManualTrigger",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {}
+      },
+      {
+        "Id": "log-pass",
+        "Type": "Log",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {
+          "Msg": "PASS branch score={{workflow.input.score}}"
+        }
+      },
+      {
+        "Id": "log-fail",
+        "Type": "Log",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {
+          "Msg": "FAIL branch score={{workflow.input.score}}"
+        }
+      },
+      {
+        "Id": "join",
+        "Type": "Join",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {}
+      },
+      {
+        "Id": "log-summary",
+        "Type": "Log",
+        "ExecutionMode": "BuiltIn",
+        "IsConfigured": true,
+        "Inputs": {
+          "Msg": "Branch-Join completed score={{workflow.input.score}}"
+        }
+      }
+    ],
+    "Transitions": [
+      {
+        "Id": "manual-to-pass",
+        "Source": "manual",
+        "Target": "log-pass",
+        "Condition": "{{workflow.input.score}} >= 80"
+      },
+      {
+        "Id": "manual-to-fail",
+        "Source": "manual",
+        "Target": "log-fail",
+        "Condition": "{{workflow.input.score}} < 80"
+      },
+      {
+        "Id": "pass-to-join",
+        "Source": "log-pass",
+        "Target": "join"
+      },
+      {
+        "Id": "fail-to-join",
+        "Source": "log-fail",
+        "Target": "join"
+      },
+      {
+        "Id": "join-to-summary",
+        "Source": "join",
+        "Target": "log-summary"
+      }
+    ]
+  }
+}

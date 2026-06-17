@@ -49,6 +49,9 @@ public static class DependencyInjection
                 ChatID = "your_chat_id"
             };
 
+        // SMTP email: config per-node (node inputs), appsettings as fallback
+        services.Configure<AWE.Application.ConfigOptions.SmtpEmailConfig>(configuration.GetSection("SmtpEmail"));
+
         // add audit interceptor
         services.AddSingleton<AuditSaveChangesInterceptor>();
 
@@ -103,6 +106,7 @@ public static class DependencyInjection
         services.AddScoped<IPluginValidator, PluginValidator>();
         services.AddScoped<IPluginService, PluginService>();
         services.AddScoped<ITelegramNotificationService, TelegramNotificationService>();
+        services.AddScoped<IEmailNotificationService, EmailNotificationService>();
 
         // Background service
         // TODO:

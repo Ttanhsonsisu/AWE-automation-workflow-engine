@@ -1,0 +1,4 @@
+applicantName,major,gpa,englishScore,experienceMonths,documentText
+Nguyen Van An,Software Engineering,3.35,640,8,"Nguyen Van An applies for Software Engineering. The profile mentions GPA 3.35, capstone project, internship, English preparation, and portfolio links."
+Tran Bao Chau,Data Science,2.92,560,2,"Tran Bao Chau applies for Data Science. The application has GPA evidence, one analytics project, English score, and a short portfolio note."
+Le Minh Khoa,Information Systems,2.41,430,1,"Le Minh Khoa applies for Information Systems. The document is short and missing several supporting details."

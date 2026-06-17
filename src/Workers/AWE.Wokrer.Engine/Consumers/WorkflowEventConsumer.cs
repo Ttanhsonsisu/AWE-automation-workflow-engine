@@ -55,7 +55,8 @@ public class WorkflowEventConsumer :
             msg.InstanceId,
             msg.StepId,
             "Failed",
-            msg.FailedAt ?? DateTime.UtcNow));
+            msg.FailedAt ?? DateTime.UtcNow,
+            msg.ErrorMessage));
 
 
         await context.ProcessResultAsync(result, _logger, $"StepFail:{msg.StepId}");

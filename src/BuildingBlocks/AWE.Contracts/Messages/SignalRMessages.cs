@@ -3,7 +3,8 @@
 public record NodeStatusUpdateMessage(
     string StepId,
     string Status,
-    DateTime Timestamp
+    DateTime Timestamp,
+    string? ErrorMessage = null
 );
 
 public record StepStartedEvent(
@@ -18,7 +19,8 @@ public record UiNodeStatusChangedEvent(
     Guid InstanceId,
     string StepId,
     string Status,
-    DateTime Timestamp
+    DateTime Timestamp,
+    string? ErrorMessage = null
 );
 
 // Event chuyên dùng để báo cho UI trạng thái tổng thể của Workflow
