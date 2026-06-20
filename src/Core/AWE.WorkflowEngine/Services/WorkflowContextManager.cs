@@ -8,13 +8,24 @@ namespace AWE.WorkflowEngine.Services;
 
 public class WorkflowContextManager : IWorkflowContextManager
 {
-    public Result<JsonDocument> InitializeContext(string inputData, string jobName, Guid correlationId, string? stopAtStepId = null)
+    public Result<JsonDocument> InitializeContext(
+        string inputData,
+        string jobName,
+        Guid correlationId,
+        string? stopAtStepId = null,
+        JsonDocument? defaultInputData = null)
     {
         JsonNode? inputsNode;
         try
         {
             var rawInput = string.IsNullOrWhiteSpace(inputData) ? "{}" : inputData;
             inputsNode = JsonNode.Parse(rawInput);
+
+            if (defaultInputData is not null)
+            {
+                var defaultsNode = JsonNode.Parse(defaultInputData.RootElement.GetRawText());
+                inputsNode = MergeInputs(defaultsNode, inputsNode);
+            }
         }
         catch (JsonException)
         {
@@ -35,6 +46,25 @@ public class WorkflowContextManager : IWorkflowContextManager
         };
 
         return Result.Success(JsonDocument.Parse(initialContext.ToJsonString()));
+    }
+
+    private static JsonNode? MergeInputs(JsonNode? defaults, JsonNode? runtime)
+    {
+        if (defaults is not JsonObject defaultObject || runtime is not JsonObject runtimeObject)
+        {
+            return runtime?.DeepClone() ?? defaults?.DeepClone();
+        }
+
+        var merged = (JsonObject)defaultObject.DeepClone();
+        foreach (var property in runtimeObject)
+        {
+            merged[property.Key] = merged[property.Key] is JsonObject defaultChild
+                && property.Value is JsonObject runtimeChild
+                    ? MergeInputs(defaultChild, runtimeChild)
+                    : property.Value?.DeepClone();
+        }
+
+        return merged;
     }
 
     public void MergeStepOutput(WorkflowInstance instance, string stepId, JsonDocument? stepOutput)

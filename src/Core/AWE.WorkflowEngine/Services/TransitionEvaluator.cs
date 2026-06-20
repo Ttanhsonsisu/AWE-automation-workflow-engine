@@ -49,6 +49,30 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
                     {
                         conditionMet = EvaluateCondition(conditionElem.GetString() ?? "", context);
                     }
+
+                    // BranchType is emitted by the designer for an If/Else pair.
+                    // The If plugin writes its boolean decision to
+                    // Steps.<source>.Output.IsMatch. A missing/invalid decision is
+                    // fail-safe: neither branch is dispatched accidentally.
+                    if (TryGetPropertyIgnoreCase(t, "BranchType", out var branchTypeElem)
+                        && branchTypeElem.ValueKind == JsonValueKind.String)
+                    {
+                        var branchType = branchTypeElem.GetString();
+                        var hasExpectedValue = bool.TryParse(branchType, out var expectedValue);
+                        var hasDecision = TryGetIfDecision(context.RootElement, currentId, out var actualValue);
+
+                        conditionMet = conditionMet
+                            && hasExpectedValue
+                            && hasDecision
+                            && actualValue == expectedValue;
+
+                        if (!hasDecision)
+                        {
+                            _logger.LogWarning(
+                                "If/Else branch evaluation failed because Steps.{StepId}.Output.IsMatch is missing or is not boolean.",
+                                currentId);
+                        }
+                    }
                     nextTransitions.Add((target, conditionMet));
                 }
             }
@@ -264,6 +288,28 @@ public class TransitionEvaluator(IVariableResolver resolver, ILogger<TransitionE
 
         propertyValue = default;
         return false;
+    }
+
+    private static bool TryGetIfDecision(JsonElement contextRoot, string stepId, out bool decision)
+    {
+        decision = false;
+
+        if (!TryGetPropertyIgnoreCase(contextRoot, "Steps", out var steps)
+            || !TryGetPropertyIgnoreCase(steps, stepId, out var step)
+            || !TryGetPropertyIgnoreCase(step, "Output", out var output)
+            || !TryGetPropertyIgnoreCase(output, "IsMatch", out var isMatch))
+        {
+            return false;
+        }
+
+        if (isMatch.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            decision = isMatch.GetBoolean();
+            return true;
+        }
+
+        return isMatch.ValueKind == JsonValueKind.String
+            && bool.TryParse(isMatch.GetString(), out decision);
     }
 
     private bool EvaluateCondition(string conditionExpression, JsonDocument context)

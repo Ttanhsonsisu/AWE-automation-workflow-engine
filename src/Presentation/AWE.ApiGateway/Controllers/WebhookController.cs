@@ -9,6 +9,7 @@ using AWE.Shared.Consts;
 using MassTransit;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 
 namespace AWE.ApiGateway.Controllers;
@@ -120,7 +121,10 @@ public class WebhookController : ControllerBase
     [HttpPost("catch/{**routePath}")]
     [EnableRateLimiting("WebhookIngress")]
     [RequestSizeLimit(1_048_576)]
-    public async Task<IActionResult> CatchWebhook([FromRoute] string routePath, [FromBody] JsonElement payload, CancellationToken cancellationToken)
+    public async Task<IActionResult> CatchWebhook(
+        [FromRoute] string routePath,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] JsonElement? payload,
+        CancellationToken cancellationToken)
     {
         var result = await _webhookIngressService.HandleCatchAsync(routePath, payload, Request.Headers, cancellationToken);
 

@@ -68,7 +68,12 @@ public class WorkflowOrchestrator(IUnitOfWork uow,
         }
 
         // 1. Tạo Context bằng Service
-        var contextResult = _contextManager.InitializeContext(inputData, jobName, correlationId ?? Guid.NewGuid(), normalizedStopAtStepId);
+        var contextResult = _contextManager.InitializeContext(
+            inputData,
+            jobName,
+            correlationId ?? Guid.NewGuid(),
+            normalizedStopAtStepId,
+            def.InputData);
         if (contextResult.IsFailure) return Result.Failure<Guid>(contextResult.Error);
 
         // 2. Khởi tạo Instance

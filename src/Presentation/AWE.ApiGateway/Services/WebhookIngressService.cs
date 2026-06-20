@@ -19,11 +19,16 @@ public class WebhookIngressService(
 
     public async Task<WebhookIngressResult> HandleCatchAsync(
         string routePath,
-        JsonElement payload,
+        JsonElement? payload,
         IHeaderDictionary headers,
         CancellationToken cancellationToken = default)
     {
         routePath = NormalizeRoutePath(routePath);
+        var payloadJson = payload is { ValueKind: not JsonValueKind.Undefined }
+            ? payload.Value.GetRawText()
+            : "{}";
+        using var payloadDocument = JsonDocument.Parse(payloadJson);
+        var normalizedPayload = payloadDocument.RootElement;
 
         var route = await _dbContext.WebhookRoutes
             .AsNoTracking()
@@ -37,7 +42,7 @@ public class WebhookIngressService(
                 Message: "Webhook route not found or inactive.");
         }
 
-        var isSignatureValid = _signatureVerifier.Verify(route.SecretToken, headers, payload.GetRawText());
+        var isSignatureValid = _signatureVerifier.Verify(route.SecretToken, headers, payloadJson);
         if (!isSignatureValid)
         {
             return new WebhookIngressResult(
@@ -47,7 +52,7 @@ public class WebhookIngressService(
                 Message: "Invalid webhook signature.");
         }
 
-        var extraction = ExtractIdempotencyKey(route.IdempotencyKeyPath, payload, headers);
+        var extraction = ExtractIdempotencyKey(route.IdempotencyKeyPath, normalizedPayload, headers);
         if (!extraction.IsValid)
         {
             return new WebhookIngressResult(
@@ -79,7 +84,7 @@ public class WebhookIngressService(
         var command = new SubmitWorkflowCommand(
             DefinitionId: route.WorkflowDefinitionId,
             JobName: $"Webhook-Triggered-{DateTime.UtcNow:yyyyMMdd-HHmmss}",
-            InputData: payload.GetRawText(),
+            InputData: payloadJson,
             CorrelationId: correlationId,
             IdempotencyKey: idempotencyKey,
             TriggerSource: WorkflowTriggerSource.Webhook,

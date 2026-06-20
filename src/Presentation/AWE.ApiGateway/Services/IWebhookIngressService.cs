@@ -5,7 +5,7 @@ namespace AWE.ApiGateway.Services;
 
 public interface IWebhookIngressService
 {
-    Task<WebhookIngressResult> HandleCatchAsync(string routePath, JsonElement payload, IHeaderDictionary headers, CancellationToken cancellationToken = default);
+    Task<WebhookIngressResult> HandleCatchAsync(string routePath, JsonElement? payload, IHeaderDictionary headers, CancellationToken cancellationToken = default);
 }
 
 public enum WebhookIngressStatus

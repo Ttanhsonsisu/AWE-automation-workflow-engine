@@ -152,6 +152,63 @@ public class TransitionEvaluatorTests
         Assert.False(transition.IsConditionMet);
     }
 
+    [Theory]
+    [InlineData(true, "true-target", "false-target")]
+    [InlineData(false, "false-target", "true-target")]
+    public void EvaluateTransitions_WithBranchType_DispatchesOnlyMatchingIfElseBranch(
+        bool isMatch,
+        string expectedTarget,
+        string skippedTarget)
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [
+            { "Id": "if-node", "Type": "If" },
+            { "Id": "true-target", "Type": "Log" },
+            { "Id": "false-target", "Type": "Log" }
+          ],
+          "Transitions": [
+            { "Id": "t-true", "Source": "if-node", "Target": "true-target", "BranchType": "true" },
+            { "Id": "t-false", "Source": "if-node", "Target": "false-target", "BranchType": "false" }
+          ]
+        }
+        """);
+        using var context = JsonDocument.Parse($$"""
+        {
+          "Inputs": {},
+          "Steps": { "if-node": { "Output": { "IsMatch": {{isMatch.ToString().ToLowerInvariant()}} } } },
+          "Meta": {}
+        }
+        """);
+
+        var transitions = _sut.EvaluateTransitions(definition, "if-node", context);
+
+        Assert.Contains(transitions, transition =>
+            transition.TargetNodeId == expectedTarget && transition.IsConditionMet);
+        Assert.Contains(transitions, transition =>
+            transition.TargetNodeId == skippedTarget && !transition.IsConditionMet);
+        Assert.Single(transitions, transition => transition.IsConditionMet);
+    }
+
+    [Fact]
+    public void EvaluateTransitions_WithBranchTypeAndMissingIfOutput_SkipsBothBranchesFailSafe()
+    {
+        using var definition = JsonDocument.Parse("""
+        {
+          "Steps": [{ "Id": "if-node", "Type": "If" }],
+          "Transitions": [
+            { "Id": "t-true", "Source": "if-node", "Target": "a", "BranchType": "true" },
+            { "Id": "t-false", "Source": "if-node", "Target": "b", "BranchType": "false" }
+          ]
+        }
+        """);
+        using var context = JsonDocument.Parse("""{"Inputs":{},"Steps":{},"Meta":{}}""");
+
+        var transitions = _sut.EvaluateTransitions(definition, "if-node", context);
+
+        Assert.All(transitions, transition => Assert.False(transition.IsConditionMet));
+    }
+
     [Fact]
     public void GetIncomingEdgesCount_CountsAllTransitionsTargetingJoinNode()
     {

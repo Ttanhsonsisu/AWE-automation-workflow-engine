@@ -71,6 +71,21 @@ Khi gọi `POST /api/webhooks/catch/{**routePath}`:
    - `IdempotencyKey = giá trị đã trích`
 6. Workflow Engine tạo instance và start node tương ứng.
 
+### Context Settings và webhook payload
+
+Khi tạo instance, Workflow Engine ghép `InputData` đã lưu trong workflow (Context Settings)
+với JSON body của webhook:
+
+- Context Settings cung cấp các giá trị mặc định.
+- Field có trong webhook body sẽ ghi đè field cùng tên trong Context Settings.
+- Object lồng nhau được merge đệ quy; array và scalar từ webhook sẽ ghi đè giá trị mặc định.
+
+Kết quả được lưu tại `ContextData.Inputs` và có thể dùng qua
+`{{workflow.input.<field>}}` như các trigger khác.
+
+Webhook body là tùy chọn. Nếu request không có body, hệ thống dùng `{}` làm payload
+và toàn bộ `ContextData.Inputs` sẽ được lấy từ Context Settings của workflow.
+
 ## 5) Verify chữ ký webhook
 
 Hệ thống tự chọn strategy theo header request:
@@ -109,6 +124,39 @@ Gọi lại cùng request với cùng `X-Request-Id`:
 
 - Nếu `IdempotencyKeyPath` cấu hình đúng (`header.X-Request-Id`) thì hệ thống trả duplicate.
 - Nếu cấu hình sai path (ví dụ `header`) thì key có thể không được trích, dẫn tới vẫn tạo instance mới.
+
+## 7.3 Demo application intake
+
+```bash
+curl -X POST "http://localhost:8080/api/webhooks/catch/demo/application-intake" \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: abc123" \
+  -H "X-Request-Id: req-$(date +%s)" \
+  -d '{
+    "applicationId": "HS-DEMO-001",
+    "applicantName": "Nguyen Van A",
+    "email": "nguyenvana@example.edu.vn",
+    "major": "Artificial Intelligence",
+    "gpa": 3.45,
+    "englishScore": 720,
+    "experienceMonths": 8,
+    "priority": "urgent",
+    "note": "Demo payload from webhook"
+  }'
+```
+
+Endpoint `catch` không yêu cầu bearer token ở controller hiện tại. Chỉ gửi
+`X-Signature` khi route có cấu hình `SecretToken`; giá trị header phải khớp secret đó.
+
+## 7.4 Chỉ kích hoạt workflow, không gửi data
+
+```bash
+curl -X POST "http://localhost:8080/api/webhooks/catch/demo/application-intake" \
+  -H "X-Signature: abc123"
+```
+
+Trong trường hợp này, workflow chạy hoàn toàn bằng dữ liệu đã lưu trong Context Settings.
+Nếu route không cấu hình `SecretToken`, có thể bỏ cả header `X-Signature`.
 
 ## 8) Đồng bộ route từ Workflow Definition
 
