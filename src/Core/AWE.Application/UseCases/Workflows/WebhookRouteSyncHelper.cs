@@ -63,7 +63,8 @@ internal static class WebhookRouteSyncHelper
         foreach (var step in steps.EnumerateArray())
         {
             if (!TryGetStringProperty(step, "Type", out var type)
-                || !string.Equals(type, "WebhookTrigger", StringComparison.OrdinalIgnoreCase))
+                || (!string.Equals(type, "WebhookTrigger", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(type, "WebhookTriggerPlugin", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

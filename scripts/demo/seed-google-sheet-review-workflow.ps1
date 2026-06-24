@@ -35,13 +35,13 @@ param(
 
     # ── Approval node config ─────────────────────────────────────────────────
     # Email giảng viên / người cần phê duyệt
-    [string]$ApproverEmail = "lecturer@example.edu.vn",
+    [string]$ApproverEmail = "ttanhsonsisu@gmail.com",
 
     # Kênh gửi thông báo: "Email", "Telegram", hoặc cả hai
     [string[]]$ApprovalChannels = @("Email"),
 
     # URL công khai của API Gateway — build link trong email approval.
-    # Local:     http://localhost:8080
+    # Local:     http://localhost:18080
     # Self-host: https://your-domain.com
     [string]$ApprovalApiBaseUrl = "",
 
@@ -60,12 +60,12 @@ param(
     #   $SmtpPort = 587
     #   $SmtpUsername / $SmtpPassword lấy từ https://mailtrap.io
     # ─────────────────────────────────────────────────────────────────────────
-    [string]$SmtpHost        = "",
+    [string]$SmtpHost        = "smtp.gmail.com",
     [int]$SmtpPort           = 587,
-    [string]$SmtpUsername    = "",
-    [string]$SmtpPassword    = "",
+    [string]$SmtpUsername    = "ttanhsonsisu.dev@gmail.com",
+    [string]$SmtpPassword    = "kfwi nsge yctv hdiz",
     [string]$SmtpFromName    = "AWE Workflow System",
-    [string]$SmtpFromAddress = "",
+    [string]$SmtpFromAddress = "ttanhsonsisu.dev@gmail.com",
     [bool]$SmtpUseSsl        = $true
 )
 
@@ -139,12 +139,12 @@ if (-not (Test-Path $envFile)) {
 $envMap = Read-DotEnv $envFile
 
 if (-not $ApiBaseUrl) {
-    $apiPort = Get-EnvValue $envMap "API_GATEWAY_HTTP_PORT" "8080"
+    $apiPort = Get-EnvValue $envMap "API_GATEWAY_HTTP_PORT" "18080"
     $ApiBaseUrl = "http://localhost:$apiPort/api"
 }
 
 if (-not $KeycloakBaseUrl) {
-    $keycloakPort = Get-EnvValue $envMap "KEYCLOAK_PORT" "8081"
+    $keycloakPort = Get-EnvValue $envMap "KEYCLOAK_PORT" "18081"
     $KeycloakBaseUrl = "http://localhost:$keycloakPort"
 }
 

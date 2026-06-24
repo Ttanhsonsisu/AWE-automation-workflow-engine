@@ -95,13 +95,15 @@ services:
     restart: always
     ports:
       - "${REDIS_PORT:-6379}:6379"
-    command: redis-server --requirepass "${REDIS_PASSWORD}" --appendonly yes
+    # Backend F5 appsettings use this local-only password. The self-host stack
+    # has its own Compose file and remains unaffected.
+    command: redis-server --requirepass "${REDIS_DEV_PASSWORD:-change_me}" --appendonly yes
     volumes:
       - redis-data:/data
     networks:
       - awe-network
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_DEV_PASSWORD:-change_me}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

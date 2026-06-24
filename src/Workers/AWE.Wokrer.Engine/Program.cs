@@ -14,6 +14,7 @@ builder.AddServiceDefaults();
 
 // Setup Database 
 builder.Services.AddAwePersistence(builder.Configuration);
+builder.Services.AddAweWorkerHeartbeat("EngineWorker");
 
 builder.Services.AddWorkflowEngineService();
 // Setup Messaging & Workers

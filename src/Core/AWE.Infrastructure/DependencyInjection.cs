@@ -14,11 +14,16 @@ using MassTransit;
 using Medallion.Threading;
 using Medallion.Threading.Redis;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Minio;
 using Quartz;
 using StackExchange.Redis;
+using System.Data;
+using System.Data.Common;
 
 namespace AWE.Infrastructure;
 
@@ -27,6 +32,7 @@ namespace AWE.Infrastructure;
 /// </summary>
 public static class DependencyInjection
 {
+    private const long PostgreSqlMigrationLockId = 0x4157454D49475241L;
 
     public static IServiceCollection AddAwePersistence(this IServiceCollection services, IConfiguration configuration)
     {
@@ -110,6 +116,21 @@ public static class DependencyInjection
 
         // Background service
         // TODO:
+
+        return services;
+    }
+
+    public static IServiceCollection AddAweWorkerHeartbeat(
+        this IServiceCollection services,
+        string workerType,
+        TimeSpan? interval = null,
+        TimeSpan? staleAfter = null)
+    {
+        services.AddSingleton(new WorkerHeartbeatOptions(
+            workerType,
+            interval ?? TimeSpan.FromSeconds(10),
+            staleAfter ?? TimeSpan.FromSeconds(30)));
+        services.AddHostedService<WorkerHeartbeatService>();
 
         return services;
     }
@@ -242,11 +263,63 @@ public static class DependencyInjection
 
         return services;
     }
-    public static async Task InitializeDatabaseAsync(this IServiceProvider serviceProvider)
+    public static async Task InitializeDatabaseAsync(
+        this IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default)
     {
         using var scope = serviceProvider.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<ApplicationDbContext>>();
 
-        await context.Database.MigrateAsync();
+        await context.Database.OpenConnectionAsync(cancellationToken);
+        var connection = context.Database.GetDbConnection();
+        var lockAcquired = false;
+
+        try
+        {
+            logger.LogInformation("Waiting for PostgreSQL migration lock...");
+            await SetPostgreSqlMigrationLockAsync(connection, acquire: true, cancellationToken);
+            lockAcquired = true;
+
+            logger.LogInformation("PostgreSQL migration lock acquired. Applying pending migrations...");
+            var historyRepository = context.GetService<IHistoryRepository>();
+            await historyRepository.CreateIfNotExistsAsync(cancellationToken);
+            await context.Database.MigrateAsync(cancellationToken);
+        }
+        finally
+        {
+            if (lockAcquired && connection.State == ConnectionState.Open)
+            {
+                try
+                {
+                    await SetPostgreSqlMigrationLockAsync(connection, acquire: false, cancellationToken);
+                    logger.LogInformation("PostgreSQL migration lock released.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Unable to release PostgreSQL migration lock explicitly. It will be released when the connection closes.");
+                }
+            }
+
+            await context.Database.CloseConnectionAsync();
+        }
+    }
+
+    private static async Task SetPostgreSqlMigrationLockAsync(
+        DbConnection connection,
+        bool acquire,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = acquire
+            ? "SELECT pg_advisory_lock(@lock_id);"
+            : "SELECT pg_advisory_unlock(@lock_id);";
+
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "lock_id";
+        parameter.Value = PostgreSqlMigrationLockId;
+        command.Parameters.Add(parameter);
+
+        await command.ExecuteScalarAsync(cancellationToken);
     }
 }

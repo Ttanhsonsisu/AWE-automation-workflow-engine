@@ -30,6 +30,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ApprovalToken> ApprovalTokens => Set<ApprovalToken>();
     public DbSet<AppUser> AppUsers => Set<AppUser>();
     public DbSet<WorkflowSchedulerSyncTask> WorkflowSchedulerSyncTasks => Set<WorkflowSchedulerSyncTask>();
+    public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
 
     public DbSet<WebhookRoute> WebhookRoutes => Set<WebhookRoute>();
 

@@ -12,8 +12,9 @@ var builder = Host.CreateApplicationBuilder(args);
 // Setup Service Defaults (Log, Metric, HealthCheck, OpenTelemetry)
 builder.AddServiceDefaults();
 
-// Setup Database 
+// Setup Database
 builder.Services.AddAwePersistence(builder.Configuration);
+builder.Services.AddAweWorkerHeartbeat("PluginWorker");
 
 builder.Services.AddWorkflowEngineService();
 

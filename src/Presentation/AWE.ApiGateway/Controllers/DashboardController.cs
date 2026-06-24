@@ -15,6 +15,11 @@ namespace AWE.ApiGateway.Controllers;
 [AllowAnonymous]
 public class DashboardController : ApiController
 {
+    private static readonly JsonSerializerOptions LiveJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     /// <summary>
     /// Lấy toàn bộ số liệu thống kê cho màn hình Dashboard
     /// </summary>
@@ -203,7 +208,7 @@ public class DashboardController : ApiController
                     await dbContext.WorkflowInstances.AsNoTracking().CountAsync(x => x.CreatedAt >= now.AddHours(-1) && x.Status == WorkflowInstanceStatus.Failed, cancellationToken));
 
                 await Response.WriteAsync($"event: dashboard\n", cancellationToken);
-                await Response.WriteAsync($"data: {JsonSerializer.Serialize(payload)}\n\n", cancellationToken);
+                await Response.WriteAsync($"data: {JsonSerializer.Serialize(payload, LiveJsonOptions)}\n\n", cancellationToken);
                 await Response.Body.FlushAsync(cancellationToken);
 
                 await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
@@ -220,24 +225,35 @@ public class DashboardController : ApiController
         CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
-        var rows = await dbContext.ExecutionLogs
+        var recentWorkerWindow = now.AddMinutes(-5);
+        var healthyThreshold = now.AddSeconds(-30);
+
+        var rows = await dbContext.WorkerHeartbeats
             .AsNoTracking()
-            .Where(x => !string.IsNullOrWhiteSpace(x.WorkerId) && x.CreatedAt >= now.AddDays(-1))
-            .GroupBy(x => x.WorkerId!)
-            .Select(g => new
-            {
-                WorkerId = g.Key,
-                LastSeenAt = g.Max(x => x.CreatedAt),
-                ErrorCountLast15m = g.Count(x => x.Level == AWE.Domain.Enums.LogLevel.Error && x.CreatedAt >= now.AddMinutes(-15))
-            })
-            .OrderByDescending(x => x.LastSeenAt)
+            .Where(x => x.LastSeenAtUtc >= recentWorkerWindow)
+            .OrderByDescending(x => x.LastSeenAtUtc)
             .ToListAsync(cancellationToken);
+
+        var machineNames = rows.Select(x => x.MachineName).Distinct().ToList();
+        var errorRows = await dbContext.ExecutionLogs
+            .AsNoTracking()
+            .Where(x => x.Level == AWE.Domain.Enums.LogLevel.Error
+                     && x.CreatedAt >= now.AddMinutes(-15)
+                     && x.WorkerId != null
+                     && machineNames.Contains(x.WorkerId))
+            .GroupBy(x => x.WorkerId!)
+            .Select(g => new { WorkerId = g.Key, ErrorCount = g.Count() })
+            .ToListAsync(cancellationToken);
+
+        var errorCountsByMachine = errorRows.ToDictionary(x => x.WorkerId, x => x.ErrorCount);
 
         var response = rows.Select(x => new WorkerHealthItem(
             x.WorkerId,
-            x.LastSeenAt,
-            x.LastSeenAt >= now.AddMinutes(-2) ? "Healthy" : "Stale",
-            x.ErrorCountLast15m)).ToList();
+            x.WorkerType,
+            x.MachineName,
+            x.LastSeenAtUtc,
+            x.LastSeenAtUtc >= healthyThreshold ? "Healthy" : "Stale",
+            errorCountsByMachine.GetValueOrDefault(x.MachineName))).ToList();
 
         return HandleResult(Result.Success(response));
     }
@@ -247,12 +263,28 @@ public class DashboardController : ApiController
         [FromServices] ApplicationDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var pendingPointers = await dbContext.ExecutionPointers.AsNoTracking().CountAsync(x => x.Status == ExecutionPointerStatus.Pending, cancellationToken);
-        var runningPointers = await dbContext.ExecutionPointers.AsNoTracking().CountAsync(x => x.Status == ExecutionPointerStatus.Running, cancellationToken);
-        var suspendedPointers = await dbContext.ExecutionPointers.AsNoTracking().CountAsync(x => x.Status == ExecutionPointerStatus.Suspended, cancellationToken);
+        var now = DateTime.UtcNow;
+
+        var pendingPointers = await dbContext.ExecutionPointers.AsNoTracking()
+            .CountAsync(x => x.Active
+                && x.Status == ExecutionPointerStatus.Pending
+                && (x.ResumeAt == null || x.ResumeAt <= now), cancellationToken);
+
+        var delayedPendingPointers = await dbContext.ExecutionPointers.AsNoTracking()
+            .CountAsync(x => x.Active
+                && x.Status == ExecutionPointerStatus.Pending
+                && x.ResumeAt != null
+                && x.ResumeAt > now, cancellationToken);
+
+        var runningPointers = await dbContext.ExecutionPointers.AsNoTracking()
+            .CountAsync(x => x.Active && x.Status == ExecutionPointerStatus.Running, cancellationToken);
+
+        var suspendedPointers = await dbContext.ExecutionPointers.AsNoTracking()
+            .CountAsync(x => x.Active && x.Status == ExecutionPointerStatus.Suspended, cancellationToken);
+
         var outboxBacklog = await dbContext.OutboxMessages.AsNoTracking().CountAsync(cancellationToken);
 
-        var response = new QueueHealthResponse(pendingPointers, runningPointers, suspendedPointers, outboxBacklog);
+        var response = new QueueHealthResponse(pendingPointers, runningPointers, suspendedPointers, outboxBacklog, delayedPendingPointers);
         return HandleResult(Result.Success(response));
     }
 
@@ -263,12 +295,48 @@ public class DashboardController : ApiController
     {
         var now = DateTime.UtcNow;
 
-        var activeSchedules = await dbContext.WorkflowSchedules.AsNoTracking().CountAsync(x => x.IsActive, cancellationToken);
+        var publishedDefinitions = await dbContext.WorkflowDefinitions
+            .AsNoTracking()
+            .Where(x => x.IsPublished)
+            .Select(x => new PublishedDefinitionTriggerRow(x.Id, x.DefinitionJson))
+            .ToListAsync(cancellationToken);
+
+        var cronTriggerCountsByDefinition = publishedDefinitions
+            .Select(x => new
+            {
+                x.DefinitionId,
+                TriggerCount = CountTriggerSteps(x.DefinitionJson, "CronTrigger", "CronTriggerPlugin")
+            })
+            .ToList();
+
+        var publishedCronTriggers = cronTriggerCountsByDefinition.Sum(x => x.TriggerCount);
+        var definitionsWithEmbeddedCron = cronTriggerCountsByDefinition
+            .Where(x => x.TriggerCount > 0)
+            .Select(x => x.DefinitionId)
+            .ToList();
+
+        var legacySchedulesQuery = dbContext.WorkflowSchedules
+            .AsNoTracking()
+            .Where(x => x.IsActive && x.Definition.IsPublished);
+
+        if (definitionsWithEmbeddedCron.Count > 0)
+        {
+            legacySchedulesQuery = legacySchedulesQuery.Where(x => !definitionsWithEmbeddedCron.Contains(x.DefinitionId));
+        }
+
+        var legacyActiveSchedules = await legacySchedulesQuery.CountAsync(cancellationToken);
+        var activeSchedules = publishedCronTriggers + legacyActiveSchedules;
         var pendingSyncTasks = await dbContext.WorkflowSchedulerSyncTasks.AsNoTracking().CountAsync(x => !x.IsCompleted, cancellationToken);
         var failedSyncTasks = await dbContext.WorkflowSchedulerSyncTasks.AsNoTracking().CountAsync(x => !x.IsCompleted && x.LastError != null, cancellationToken);
         var overdueSyncTasks = await dbContext.WorkflowSchedulerSyncTasks.AsNoTracking().CountAsync(x => !x.IsCompleted && x.NextAttemptAtUtc < now.AddMinutes(-1), cancellationToken);
 
-        var response = new SchedulerHealthResponse(activeSchedules, pendingSyncTasks, failedSyncTasks, overdueSyncTasks);
+        var response = new SchedulerHealthResponse(
+            activeSchedules,
+            pendingSyncTasks,
+            failedSyncTasks,
+            overdueSyncTasks,
+            publishedCronTriggers,
+            legacyActiveSchedules);
         return HandleResult(Result.Success(response));
     }
 
@@ -280,14 +348,40 @@ public class DashboardController : ApiController
         var now = DateTime.UtcNow;
         var last24h = now.AddHours(-24);
 
-        var activeRoutes = await dbContext.WebhookRoutes.AsNoTracking().CountAsync(x => x.IsActive, cancellationToken);
-        var idempotencyEnabledRoutes = await dbContext.WebhookRoutes.AsNoTracking()
-            .CountAsync(x => x.IsActive && x.IdempotencyKeyPath != null && x.IdempotencyKeyPath != string.Empty, cancellationToken);
+        var publishedDefinitions = await dbContext.WorkflowDefinitions
+            .AsNoTracking()
+            .Where(x => x.IsPublished)
+            .Select(x => new PublishedDefinitionTriggerRow(x.Id, x.DefinitionJson))
+            .ToListAsync(cancellationToken);
 
-        var triggeredExecutions24h = await dbContext.WorkflowInstances.AsNoTracking()
-            .CountAsync(x => x.CreatedAt >= last24h && x.IdempotencyKey != null, cancellationToken);
+        var publishedWebhookRoutes = publishedDefinitions
+            .SelectMany(x => ExtractWebhookRoutes(x.DefinitionId, x.DefinitionJson))
+            .GroupBy(x => x.RoutePath, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .ToList();
 
-        var response = new WebhookHealthResponse(activeRoutes, idempotencyEnabledRoutes, triggeredExecutions24h);
+        var publishedWebhookTriggers = publishedDefinitions
+            .Sum(x => CountTriggerSteps(x.DefinitionJson, "WebhookTrigger", "WebhookTriggerPlugin"));
+
+        var activeRoutes = publishedWebhookRoutes.Count;
+        var idempotencyEnabledRoutes = publishedWebhookRoutes.Count(x => !string.IsNullOrWhiteSpace(x.IdempotencyKeyPath));
+        var syncedRoutes = await dbContext.WebhookRoutes.AsNoTracking().CountAsync(x => x.IsActive, cancellationToken);
+        var webhookDefinitionIds = publishedWebhookRoutes
+            .Select(x => x.DefinitionId)
+            .Distinct()
+            .ToList();
+
+        var triggeredExecutions24h = webhookDefinitionIds.Count == 0
+            ? 0
+            : await dbContext.WorkflowInstances.AsNoTracking()
+                .CountAsync(x => x.CreatedAt >= last24h && webhookDefinitionIds.Contains(x.DefinitionId), cancellationToken);
+
+        var response = new WebhookHealthResponse(
+            activeRoutes,
+            idempotencyEnabledRoutes,
+            triggeredExecutions24h,
+            publishedWebhookTriggers,
+            syncedRoutes);
         return HandleResult(Result.Success(response));
     }
 
@@ -412,6 +506,100 @@ public class DashboardController : ApiController
         return sortedData[left] + (sortedData[right] - sortedData[left]) * fraction;
     }
 
+    private static int CountTriggerSteps(JsonDocument definitionJson, params string[] triggerTypes)
+    {
+        if (!definitionJson.RootElement.TryGetProperty("Steps", out var steps)
+            || steps.ValueKind != JsonValueKind.Array)
+        {
+            return 0;
+        }
+
+        var supportedTypes = triggerTypes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var count = 0;
+
+        foreach (var step in steps.EnumerateArray())
+        {
+            if (TryGetStringProperty(step, "Type", out var type)
+                && !string.IsNullOrWhiteSpace(type)
+                && supportedTypes.Contains(type))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static IEnumerable<PublishedWebhookRoute> ExtractWebhookRoutes(Guid definitionId, JsonDocument definitionJson)
+    {
+        if (!definitionJson.RootElement.TryGetProperty("Steps", out var steps)
+            || steps.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        foreach (var step in steps.EnumerateArray())
+        {
+            if (!TryGetStringProperty(step, "Type", out var type)
+                || (!string.Equals(type, "WebhookTrigger", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(type, "WebhookTriggerPlugin", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (!TryGetPropertyIgnoreCase(step, "Inputs", out var inputs)
+                || inputs.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            if (!TryGetStringProperty(inputs, "RoutePath", out var routePath)
+                || string.IsNullOrWhiteSpace(routePath))
+            {
+                continue;
+            }
+
+            TryGetStringProperty(inputs, "IdempotencyKeyPath", out var idempotencyKeyPath);
+
+            yield return new PublishedWebhookRoute(
+                definitionId,
+                routePath.Trim(),
+                string.IsNullOrWhiteSpace(idempotencyKeyPath) ? null : idempotencyKeyPath.Trim());
+        }
+    }
+
+    private static bool TryGetStringProperty(JsonElement element, string propertyName, out string? value)
+    {
+        value = null;
+
+        if (!TryGetPropertyIgnoreCase(element, propertyName, out var property)
+            || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString();
+        return true;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement propertyValue)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    propertyValue = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        propertyValue = default;
+        return false;
+    }
+
     private static CapacityForecastResponse BuildForecast(
         IReadOnlyList<ForecastHistoryRow> history,
         int forecastDays)
@@ -485,13 +673,30 @@ public record DashboardTopFailureItem(Guid DefinitionId, string DefinitionName, 
 
 public record DashboardLiveSnapshot(DateTime Timestamp, int RunningInstances, int PendingPointers, int FailedLastHour);
 
-public record WorkerHealthItem(string WorkerId, DateTime LastSeenAt, string Status, int ErrorCountLast15m);
+public record WorkerHealthItem(
+    string WorkerId,
+    string WorkerType,
+    string MachineName,
+    DateTime LastSeenAt,
+    string Status,
+    int ErrorCountLast15m);
 
-public record QueueHealthResponse(int PendingPointers, int RunningPointers, int SuspendedPointers, int OutboxBacklog);
+public record QueueHealthResponse(int PendingPointers, int RunningPointers, int SuspendedPointers, int OutboxBacklog, int DelayedPendingPointers);
 
-public record SchedulerHealthResponse(int ActiveSchedules, int PendingSyncTasks, int FailedSyncTasks, int OverdueSyncTasks);
+public record SchedulerHealthResponse(
+    int ActiveSchedules,
+    int PendingSyncTasks,
+    int FailedSyncTasks,
+    int OverdueSyncTasks,
+    int PublishedCronTriggers,
+    int LegacyActiveSchedules);
 
-public record WebhookHealthResponse(int ActiveRoutes, int IdempotencyEnabledRoutes, int TriggeredExecutionsLast24h);
+public record WebhookHealthResponse(
+    int ActiveRoutes,
+    int IdempotencyEnabledRoutes,
+    int TriggeredExecutionsLast24h,
+    int PublishedWebhookTriggers,
+    int SyncedRoutes);
 
 public record DashboardAnomalyItem(DateTime Date, int Throughput, int Failures, string Type);
 
@@ -501,3 +706,5 @@ public record CapacityForecastResponse(IReadOnlyList<CapacityForecastPoint> Hist
 
 internal record TrendRawRow(DateTime CreatedAt, DateTime StartTime, DateTime? EndTime, WorkflowInstanceStatus Status);
 internal record ForecastHistoryRow(DateTime Date, int Count);
+internal record PublishedDefinitionTriggerRow(Guid DefinitionId, JsonDocument DefinitionJson);
+internal record PublishedWebhookRoute(Guid DefinitionId, string RoutePath, string? IdempotencyKeyPath);
