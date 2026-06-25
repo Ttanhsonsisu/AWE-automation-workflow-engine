@@ -205,6 +205,8 @@ public static class DependencyInjection
         // Quartz.NET configuration
         services.AddQuartz(q =>
         {
+            q.SetProperty("quartz.scheduler.instanceName", "AWE.WorkflowEngine");
+            q.SetProperty("quartz.scheduler.instanceId", "AUTO");
             q.SetProperty("quartz.serializer.type", "json");
 
             // Cấu hình Persistent Store

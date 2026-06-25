@@ -6,6 +6,7 @@ param(
     [string]$ApiBaseUrl,
     [string]$KeycloakBaseUrl,
     [string]$FrontendBaseUrl,
+    [string]$SelfHostDir,
     [string]$Realm = "awe-auth",
 
     [string]$AccessToken,
@@ -63,7 +64,7 @@ param(
     [string]$SmtpHost        = "smtp.gmail.com",
     [int]$SmtpPort           = 587,
     [string]$SmtpUsername    = "ttanhsonsisu.dev@gmail.com",
-    [string]$SmtpPassword    = "kfwi nsge yctv hdiz",
+    [string]$SmtpPassword    = "",
     [string]$SmtpFromName    = "AWE Workflow System",
     [string]$SmtpFromAddress = "ttanhsonsisu.dev@gmail.com",
     [bool]$SmtpUseSsl        = $true
@@ -122,13 +123,94 @@ function Get-EnvValue {
     return $Fallback
 }
 
+function Get-DockerContainerEnvValue {
+    param(
+        [string]$ContainerName,
+        [string]$Key
+    )
+
+    try {
+        $envJson = docker inspect $ContainerName --format '{{json .Config.Env}}' 2>$null
+        if (-not $envJson) {
+            return $null
+        }
+
+        $envValues = $envJson | ConvertFrom-Json
+        $prefix = "$Key="
+        $line = @($envValues | Where-Object { $_ -like "$prefix*" } | Select-Object -First 1)
+        if (-not $line) {
+            return $null
+        }
+
+        return ([string]$line[0]).Substring($prefix.Length)
+    } catch {
+        return $null
+    }
+}
+
+function Get-DockerContainerLabelValue {
+    param(
+        [string]$ContainerName,
+        [string]$Key
+    )
+
+    try {
+        $labelsJson = docker inspect $ContainerName --format '{{json .Config.Labels}}' 2>$null
+        if (-not $labelsJson) {
+            return $null
+        }
+
+        $labels = $labelsJson | ConvertFrom-Json
+        if ($labels.PSObject.Properties.Name -contains $Key) {
+            return [string]$labels.$Key
+        }
+
+        return $null
+    } catch {
+        return $null
+    }
+}
+
+function Resolve-SelfHostEnvFile {
+    param(
+        [string]$RequestedSelfHostDir,
+        [string]$RepositoryRoot
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedSelfHostDir)) {
+        $candidates.Add((Join-Path $RequestedSelfHostDir ".env"))
+        $candidates.Add((Join-Path $RequestedSelfHostDir ".env.example"))
+    }
+
+    $runningSelfHostDir = Get-DockerContainerLabelValue -ContainerName "awe-keycloak" -Key "com.docker.compose.project.working_dir"
+    if (-not [string]::IsNullOrWhiteSpace($runningSelfHostDir)) {
+        $candidates.Add((Join-Path $runningSelfHostDir ".env"))
+        $candidates.Add((Join-Path $runningSelfHostDir ".env.example"))
+    }
+
+    $candidates.Add((Join-Path $RepositoryRoot "demo\AWE-self-host\.env"))
+    $candidates.Add((Join-Path $RepositoryRoot "demo\AWE-self-host\.env.example"))
+    $candidates.Add((Join-Path $RepositoryRoot "AWE-self-host\.env"))
+    $candidates.Add((Join-Path $RepositoryRoot "AWE-self-host\.env.example"))
+
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if (Test-Path $candidate) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+
+    return (Join-Path $RepositoryRoot "AWE-self-host\.env.example")
+}
+
 $envFile = if ($Environment -eq "selfhost") {
-    Join-Path $RepoRoot "AWE-self-host\.env"
+    Resolve-SelfHostEnvFile -RequestedSelfHostDir $SelfHostDir -RepositoryRoot $RepoRoot
 } else {
     Join-Path $EngineRoot ".env"
 }
 
-if (-not (Test-Path $envFile)) {
+if ($Environment -ne "selfhost" -and -not (Test-Path $envFile)) {
     $envFile = if ($Environment -eq "selfhost") {
         Join-Path $RepoRoot "AWE-self-host\.env.example"
     } else {
@@ -164,6 +246,24 @@ if (-not $KeycloakAdminUser) {
 if (-not $KeycloakAdminPassword) {
     $defaultAdminPassword = if ($Environment -eq "local") { "admin" } else { "change_me" }
     $KeycloakAdminPassword = Get-EnvValue $envMap "KEYCLOAK_ADMIN_PASSWORD" $defaultAdminPassword
+}
+
+if ($Environment -eq "selfhost") {
+    if (-not $PSBoundParameters.ContainsKey("KeycloakAdminUser")) {
+        $containerAdminUser = Get-DockerContainerEnvValue -ContainerName "awe-keycloak" -Key "KEYCLOAK_ADMIN"
+        if (-not [string]::IsNullOrWhiteSpace($containerAdminUser) -and $containerAdminUser -ne $KeycloakAdminUser) {
+            Write-Warning "KEYCLOAK_ADMIN_USER in $envFile differs from the running awe-keycloak container. Using the running container value."
+            $KeycloakAdminUser = $containerAdminUser
+        }
+    }
+
+    if (-not $PSBoundParameters.ContainsKey("KeycloakAdminPassword")) {
+        $containerAdminPassword = Get-DockerContainerEnvValue -ContainerName "awe-keycloak" -Key "KEYCLOAK_ADMIN_PASSWORD"
+        if (-not [string]::IsNullOrWhiteSpace($containerAdminPassword) -and $containerAdminPassword -ne $KeycloakAdminPassword) {
+            Write-Warning "KEYCLOAK_ADMIN_PASSWORD in $envFile differs from the running awe-keycloak container. Using the running container value."
+            $KeycloakAdminPassword = $containerAdminPassword
+        }
+    }
 }
 
 if (-not $PluginVersion) {
@@ -262,7 +362,30 @@ function Invoke-KeycloakToken {
         password = $Password
     }
 
-    $response = Invoke-RestMethod -Method Post -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body
+    try {
+        $response = Invoke-RestMethod -Method Post -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body
+    } catch {
+        $message = $_.Exception.Message
+        $statusCode = $null
+
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($_.Exception.Response.GetResponseStream()) {
+                $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                $bodyText = $reader.ReadToEnd()
+                if ($bodyText) {
+                    $message = "$message`n$bodyText"
+                }
+            }
+        }
+
+        if ($statusCode -ge 500) {
+            throw "Keycloak token endpoint returned HTTP $statusCode at $tokenUrl. Check the Keycloak container, Cloudflare tunnel/reverse proxy route for id.* and retry after Keycloak is healthy.`n$message"
+        }
+
+        throw "Keycloak token request failed at $tokenUrl. Check admin credentials, realm '$TokenRealm', and client '$ClientId'.`n$message"
+    }
+
     return $response.access_token
 }
 
@@ -296,6 +419,11 @@ function Assert-HttpEndpointReachable {
         Invoke-WebRequest -Method Get -Uri $Url -TimeoutSec 5 -UseBasicParsing | Out-Null
     } catch {
         if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+            if ($statusCode -ge 500) {
+                throw "$Name returned HTTP $statusCode at $Url. $Hint"
+            }
+
             return
         }
 
